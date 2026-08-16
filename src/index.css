@@ -1,0 +1,56 @@
+:root {
+  font-family: var(--font-martian-grotesk), ui-sans-serif, system-ui, sans-serif;
+  color: #211e18;
+  background: #f5f2ea;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --bg: #f5f2ea;
+  --surface: #fffdf8;
+  --soft: #ebe7dd;
+  --nav: #fffdf8;
+  --text: #211e18;
+  --muted: #726d64;
+  --faint: #9d978c;
+  --line: #ded8cc;
+  --line-strong: #bdb5a8;
+  --cobalt: #2864e8;
+  --active: #211e18;
+  --active-text: #fffdf8;
+  --focus: rgba(40, 100, 232, 0.14);
+}
+
+:root[data-theme='dark'] {
+  color: #f3efe6;
+  background: #11110f;
+  --bg: #11110f;
+  --surface: #1b1a17;
+  --soft: #26241f;
+  --nav: #1b1a17;
+  --text: #f3efe6;
+  --muted: #aaa398;
+  --faint: #6f6a61;
+  --line: #34312b;
+  --line-strong: #565149;
+  --cobalt: #7ea4ff;
+  --active: #f3efe6;
+  --active-text: #171612;
+  --focus: rgba(126, 164, 255, 0.14);
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; background: var(--bg); }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--bg); color: var(--text); }
+button, input { font: inherit; }
+code, kbd { font-family: var(--font-martian-mono), ui-monospace, monospace; }
+button, a { -webkit-tap-highlight-color: transparent; }
+button { color: inherit; }
+a { color: inherit; text-decoration: none; }
+
+::selection { background: var(--cobalt); color: white; }
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--cobalt);
+  outline-offset: 3px;
+}

@@ -1,0 +1,15 @@
+node_modules
+.next
+dist
+config
+.git
+.github
+*.log
+*.local
+.env
+.env.*
+!.env.example
+!.env.*.example
+.npmrc
+.yarnrc
+.netrc
