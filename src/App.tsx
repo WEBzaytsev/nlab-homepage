@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Monitor, Moon, Search, Sun, X } from 'lucide-react'
 import { ServiceCard } from './components/ServiceCard'
 import { useDirectorySnapshot } from './domain/use-directory-snapshot'
@@ -55,13 +55,17 @@ function App({ initialScreen, initialSnapshot }: { initialScreen: Screen; initia
   const [searchOpen, setSearchOpen] = useState(false)
   const [theme, setTheme] = useState<Theme>('light')
   const [themeMode, setThemeMode] = useState<ThemeMode>('auto')
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const searchToggleRef = useRef<HTMLButtonElement>(null)
 
   const projectsAvailable = directory.data.projects !== null
   const fixedGroups = directory.data.catalog
 
   const visibleFixed = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase('ru-RU')
-    return needle ? fixedGroups.map((group) => filteredGroup(group, needle)) : fixedGroups
+    return needle
+      ? fixedGroups.map((group) => group.searchText.includes(needle) ? group : filteredGroup(group, needle))
+      : fixedGroups
   }, [fixedGroups, query])
 
   const visibleProjects = useMemo(() => {
@@ -76,6 +80,12 @@ function App({ initialScreen, initialSnapshot }: { initialScreen: Screen; initia
       ))
       .filter((project) => project.services.length > 0)
   }, [directory.data.projects, query])
+
+  const visibleServiceCount = useMemo(() => (
+    screen === 'catalog'
+      ? visibleFixed.reduce((total, group) => total + group.services.length, 0)
+      : visibleProjects.reduce((total, project) => total + project.services.length, 0)
+  ), [screen, visibleFixed, visibleProjects])
 
   const transitionToScreen = useCallback((nextScreen: Screen) => {
     if (nextScreen === screen) return
@@ -164,7 +174,7 @@ function App({ initialScreen, initialSnapshot }: { initialScreen: Screen; initia
     if (nextScreen === 'projects') url.searchParams.set('screen', 'projects')
     else url.searchParams.delete('screen')
     url.searchParams.delete('project')
-    window.history.replaceState({}, '', url)
+    window.history.pushState({}, '', url)
   }, [])
 
   const openScreen = useCallback((nextScreen: Screen) => {
@@ -176,27 +186,32 @@ function App({ initialScreen, initialSnapshot }: { initialScreen: Screen; initia
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [screen, transitionToScreen, updateUrl])
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!projectsAvailable || window.innerWidth <= 820) return
-      if (event.key !== 'Tab' || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
-      const target = event.target as HTMLElement | null
-      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return
-
-      event.preventDefault()
-      openScreen(screen === 'catalog' ? 'projects' : 'catalog')
-    }
-
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [openScreen, projectsAvailable, screen])
-
   const title = screen === 'catalog' ? 'Каталог' : 'Проекты'
+  const searchExpanded = searchOpen || query.length > 0
+  const themeActionLabel = themeMode === 'auto'
+    ? `Автотема: ${theme === 'dark' ? 'тёмная' : 'светлая'}. Включить тёмную тему`
+    : themeMode === 'dark'
+      ? 'Тёмная тема. Включить светлую тему'
+      : 'Светлая тема. Включить автотему'
+
+  const openSearch = () => {
+    setSearchOpen(true)
+    window.requestAnimationFrame(() => searchInputRef.current?.focus())
+  }
+
+  const closeSearch = () => {
+    setQuery('')
+    setSearchOpen(false)
+
+    if (window.matchMedia('(max-width: 820px)').matches) {
+      window.requestAnimationFrame(() => searchToggleRef.current?.focus())
+    }
+  }
 
   return (
     <div className="app-shell">
       <header className="site-header">
-        <div className={`nav-capsule${searchOpen ? ' search-open' : ''}`}>
+        <div className={`nav-capsule${searchExpanded ? ' search-open' : ''}`}>
           <button className="brand" onClick={() => openScreen('catalog')} type="button" aria-label="Открыть каталог">
             <span>{directory.data.header.title.trim().charAt(0).toLocaleUpperCase('ru-RU')}</span>
             <strong>{directory.data.header.title}</strong>
@@ -206,54 +221,62 @@ function App({ initialScreen, initialSnapshot }: { initialScreen: Screen; initia
             className={`screen-tabs${projectsAvailable ? ' has-projects' : ''}${screen === 'projects' ? ' projects-active' : ''}`}
             aria-label="Экраны"
           >
-            <button className={screen === 'catalog' ? 'active' : ''} onClick={() => openScreen('catalog')} type="button">
+            <button
+              aria-current={screen === 'catalog' ? 'page' : undefined}
+              className={screen === 'catalog' ? 'active' : ''}
+              onClick={() => openScreen('catalog')}
+              type="button"
+            >
               Каталог
             </button>
             {projectsAvailable && (
-              <button className={screen === 'projects' ? 'active' : ''} onClick={() => openScreen('projects')} type="button">
+              <button
+                aria-current={screen === 'projects' ? 'page' : undefined}
+                className={screen === 'projects' ? 'active' : ''}
+                onClick={() => openScreen('projects')}
+                type="button"
+              >
                 Проекты
               </button>
             )}
           </nav>
 
           <div className="nav-actions">
-            {projectsAvailable && <span className="tab-hint"><kbd>Tab</kbd></span>}
-            <div className={`header-search${searchOpen ? ' open' : ''}`}>
-              {searchOpen && (
-                <input
-                  aria-label="Поиск по текущему экрану"
-                  autoFocus
-                  onChange={(event) => setQuery(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key !== 'Escape') return
-                    setQuery('')
-                    setSearchOpen(false)
-                  }}
-                  placeholder={screen === 'catalog' ? 'Найти сервис' : 'Найти проект или интерфейс'}
-                  type="search"
-                  value={query}
-                />
-              )}
-              <button
-                aria-expanded={searchOpen}
-                aria-label={searchOpen ? 'Закрыть поиск' : 'Открыть поиск'}
-                onClick={() => {
-                  if (searchOpen) setQuery('')
-                  setSearchOpen((value) => !value)
+            <div
+              aria-label="Поиск по текущему экрану"
+              className={`header-search${searchExpanded ? ' open' : ''}`}
+              role="search"
+            >
+              <Search className="search-leading-icon" size={16} aria-hidden="true" />
+              <input
+                aria-label="Поиск по текущему экрану"
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') closeSearch()
                 }}
+                placeholder={screen === 'catalog' ? 'Найти сервис' : 'Найти проект или сервис'}
+                ref={searchInputRef}
+                type="search"
+                value={query}
+              />
+              <button
+                aria-expanded={searchExpanded}
+                aria-label={searchExpanded ? 'Закрыть поиск' : 'Открыть поиск'}
+                onClick={() => {
+                  if (searchExpanded) closeSearch()
+                  else openSearch()
+                }}
+                ref={searchToggleRef}
                 type="button"
               >
-                {searchOpen ? <X size={16} /> : <Search size={16} />}
+                {searchExpanded ? <X size={16} aria-hidden="true" /> : <Search size={16} aria-hidden="true" />}
               </button>
             </div>
             <button
               className="nav-icon-action"
-              aria-label={themeMode === 'auto'
-                ? `Автотема: ${theme === 'dark' ? 'тёмная' : 'светлая'}. Включить тёмную тему`
-                : themeMode === 'dark'
-                  ? 'Тёмная тема. Включить светлую тему'
-                  : 'Светлая тема. Включить автотему'}
+              aria-label={themeActionLabel}
               onClick={toggleTheme}
+              title={themeActionLabel}
               type="button"
             >
               <Monitor className="theme-icon-auto" size={16} />
@@ -266,6 +289,13 @@ function App({ initialScreen, initialSnapshot }: { initialScreen: Screen; initia
 
       <main>
         <h1 className="sr-only">{title}</h1>
+
+        {query.trim() && (
+          <div className="search-summary" role="status" aria-live="polite">
+            <span>Найдено: {visibleServiceCount}</span>
+            <button type="button" onClick={() => setQuery('')}>Сбросить</button>
+          </div>
+        )}
 
         <div className={`screen-content screen-content-${screenTransition}`}>
           {directory.status === 'stale' && <ConfigUpdateFailure error={directory.error} />}
