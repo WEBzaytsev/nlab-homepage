@@ -70,7 +70,7 @@ const sortingSchema = z.object({
   projects: { categories: false, cards: false },
 })
 const globalConfigSchema = z.object({
-  openInNewTab: z.boolean().default(true),
+  openInNewTab: z.boolean().default(false),
   header: z.object({ title: z.string().trim().min(1).max(48) }).strict(),
   sorting: sortingSchema,
 }).strict()
