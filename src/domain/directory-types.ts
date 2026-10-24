@@ -92,6 +92,7 @@ export type Service = Readonly<{
   name: string
   href: string
   description: string
+  openInNewTab?: boolean
   icon: ServiceIcon
 }>
 
@@ -104,6 +105,7 @@ export type ServiceGroup = Readonly<{
 }>
 
 export type GlobalConfig = Readonly<{
+  openInNewTab: boolean
   header: Readonly<{ title: string }>
   sorting: Readonly<{
     catalog: Readonly<{
@@ -120,7 +122,8 @@ export type GlobalConfig = Readonly<{
 export type CatalogData = Readonly<{ groups: readonly ServiceGroup[] }>
 export type ProjectsData = Readonly<{ projects: readonly ServiceGroup[] }>
 
-export type PresentedService = Service & Readonly<{
+export type PresentedService = Omit<Service, 'openInNewTab'> & Readonly<{
+  openInNewTab: boolean
   searchText: string
   cardTheme: CardTheme
   cardVariant: CardVariant

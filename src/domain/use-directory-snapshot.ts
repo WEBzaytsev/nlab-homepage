@@ -139,6 +139,7 @@ function isDirectorySnapshot(value: unknown): value is DirectorySnapshot {
       && 'name' in service && typeof service.name === 'string'
       && 'href' in service && typeof service.href === 'string'
       && 'description' in service && typeof service.description === 'string'
+      && 'openInNewTab' in service && typeof service.openInNewTab === 'boolean'
       && 'icon' in service && Object.values(ServiceIcon).includes(service.icon as ServiceIcon)
       && 'searchText' in service && typeof service.searchText === 'string'
       && 'cardTheme' in service && Object.values(CardTheme).includes(service.cardTheme as CardTheme)

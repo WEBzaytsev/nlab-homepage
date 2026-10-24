@@ -14,7 +14,7 @@ export function ServiceCard({ service }: Props) {
       className={`service-card theme-${service.cardTheme} card-variant-${service.cardVariant}`}
       href={service.href}
       rel="noopener noreferrer"
-      target="_blank"
+      target={service.openInNewTab ? '_blank' : undefined}
     >
       <span className="service-icon" aria-hidden="true"><Icon size={19} strokeWidth={1.65} /></span>
       <div className="service-card-copy">
@@ -22,7 +22,7 @@ export function ServiceCard({ service }: Props) {
         {service.description && <p>{service.description}</p>}
       </div>
       <span className="open-icon" aria-hidden="true"><ArrowUpRight size={16} /></span>
-      <span className="sr-only">Откроется в новой вкладке</span>
+      {service.openInNewTab && <span className="sr-only">Откроется в новой вкладке</span>}
     </a>
   )
 }

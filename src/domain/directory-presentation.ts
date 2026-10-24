@@ -87,9 +87,10 @@ function optionallyOrderedByName<T extends { name: string }>(items: readonly T[]
   return [...items].sort((left, right) => nameCollator.compare(left.name, right.name))
 }
 
-function presentService(service: Service, cardTheme: CardTheme, cardVariant: CardVariant): PresentedService {
+function presentService(service: Service, defaultOpenInNewTab: boolean, cardTheme: CardTheme, cardVariant: CardVariant): PresentedService {
   return {
     ...service,
+    openInNewTab: service.openInNewTab ?? defaultOpenInNewTab,
     searchText: normalizeSearchText(`${service.name} ${service.description} ${service.href}`),
     cardTheme,
     cardVariant,
@@ -102,7 +103,7 @@ function cardVariantForOccurrence(cardTheme: CardTheme, occurrence: number): Car
   throw new DirectoryPresentationError(cardTheme, occurrence)
 }
 
-function presentGroups(groups: readonly ServiceGroup[], sortCategories: boolean, sortCards: boolean): readonly PresentedServiceGroup[] {
+function presentGroups(groups: readonly ServiceGroup[], sortCategories: boolean, sortCards: boolean, defaultOpenInNewTab: boolean): readonly PresentedServiceGroup[] {
   const themeOccurrences = new Map<CardTheme, number>()
   return optionallyOrderedByName(groups, sortCategories).map((group) => {
     const { sorting, ...presentedGroup } = group
@@ -114,7 +115,7 @@ function presentGroups(groups: readonly ServiceGroup[], sortCategories: boolean,
           const cardTheme = CARD_THEME_BY_ICON[service.icon]
           const occurrence = themeOccurrences.get(cardTheme) ?? 0
           themeOccurrences.set(cardTheme, occurrence + 1)
-          return presentService(service, cardTheme, cardVariantForOccurrence(cardTheme, occurrence))
+          return presentService(service, defaultOpenInNewTab, cardTheme, cardVariantForOccurrence(cardTheme, occurrence))
         }),
     }
   })
@@ -129,9 +130,9 @@ export function presentDirectory(
   return {
     revision,
     header: globalConfig.header,
-    catalog: presentGroups(catalog.groups, globalConfig.sorting.catalog.categories, globalConfig.sorting.catalog.cards),
+    catalog: presentGroups(catalog.groups, globalConfig.sorting.catalog.categories, globalConfig.sorting.catalog.cards, globalConfig.openInNewTab),
     projects: projects
-      ? presentGroups(projects.projects, globalConfig.sorting.projects.categories, globalConfig.sorting.projects.cards)
+      ? presentGroups(projects.projects, globalConfig.sorting.projects.categories, globalConfig.sorting.projects.cards, globalConfig.openInNewTab)
       : null,
   }
 }

@@ -18,6 +18,7 @@ const serviceSchema = z.object({
   name: z.string().trim().min(1),
   href: httpUrlSchema,
   description: z.string().trim().min(1).default(''),
+  openInNewTab: z.boolean().optional(),
   icon: z.enum(Object.values(ServiceIcon)),
 }).strict()
 
@@ -69,6 +70,7 @@ const sortingSchema = z.object({
   projects: { categories: false, cards: false },
 })
 const globalConfigSchema = z.object({
+  openInNewTab: z.boolean().default(true),
   header: z.object({ title: z.string().trim().min(1).max(48) }).strict(),
   sorting: sortingSchema,
 }).strict()
