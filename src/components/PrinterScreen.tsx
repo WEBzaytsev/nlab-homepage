@@ -132,6 +132,10 @@ export function PrinterScreen() {
     <section className="printer-screen" aria-labelledby="printer-title">
       <header className="printer-heading">
         <h2 id="printer-title">Принтер</h2>
+        <nav className="printer-links" aria-label="Панели принтера">
+          <a href="http://192.168.0.109:10088/valve-oil">Valve Oil</a>
+          <a href="http://192.168.0.109:10088/">Fluidd</a>
+        </nav>
       </header>
       {warning && <div className="printer-warning" role="alert"><AlertTriangle size={18} aria-hidden="true" /><span>{warning}</span></div>}
       <div className="printer-dashboard">

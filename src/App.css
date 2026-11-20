@@ -381,7 +381,10 @@ main { width: min(1420px, calc(100% - 48px)); margin: 0 auto; padding: 112px 0 6
 
 .printer-screen { width: min(960px, 100%); margin: 0 auto; }
 .printer-dashboard { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr); gap: 18px; align-items: start; }
-.printer-heading { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.printer-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.printer-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.printer-links a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; border: 1px solid currentColor; border-radius: 8px; color: inherit; text-decoration: none; }
+.printer-links a:hover { background: var(--soft); }
 .printer-heading h2 { margin: 0; font-size: 30px; letter-spacing: -0.05em; }
 .printer-refresh { min-height: 38px; display: inline-flex; align-items: center; gap: 7px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface); color: var(--text); cursor: pointer; font-size: 11px; font-weight: 700; }
 .printer-refresh:hover { background: var(--soft); }
