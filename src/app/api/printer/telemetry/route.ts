@@ -96,12 +96,15 @@ export async function GET(): Promise<Response> {
       if (estimatedTime !== null) etaSeconds = Math.max(0, estimatedTime - printDuration)
     }
 
+    const temperatureNames = new Set<string>()
     const temperatures = selected.flatMap((name) => {
       const object = status[name]
-      if (!isTemperature(name) || !isRecord(object)) return []
+      const label = labelFor(name)
+      if (!isTemperature(name) || !isRecord(object) || temperatureNames.has(label)) return []
       const temperature = numberValue(object.temperature)
       if (temperature === null) return []
-      return [{ name: labelFor(name), temperature, target: numberValue(object.target) }]
+      temperatureNames.add(label)
+      return [{ name: label, temperature, target: numberValue(object.target) }]
     })
     const fans = selected.flatMap((name) => {
       const object = status[name]
