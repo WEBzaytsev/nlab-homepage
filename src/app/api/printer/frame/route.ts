@@ -1,7 +1,4 @@
 import 'server-only'
-import { readFile } from 'node:fs/promises'
-import { parse } from 'yaml'
-import { z } from 'zod'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -29,7 +26,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
-function checkedOrigin(value: string): URL {
+function configuredOrigin(name: string): URL {
+  const value = process.env[name]
+  if (!value) throw new Error('missing configuration')
   const url = new URL(value)
   if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.username || url.password) {
     throw new Error('invalid configuration')
@@ -38,15 +37,11 @@ function checkedOrigin(value: string): URL {
   return url
 }
 
-const printerConfig = z.strictObject({
-  moonraker: z.strictObject({ origin: z.string().transform(checkedOrigin), auth: z.enum(['none', 'apiKey']).default('none') }),
-  camera: z.strictObject({ origin: z.string().transform(checkedOrigin), uid: z.string().trim().min(1).optional(), auth: z.enum(['none', 'basic']).default('none') }),
-})
-
-function credential(name: string): string {
-  const value = process.env[name]
-  if (!value) throw new Error('missing credential')
-  return value
+function optionalPair(firstName: string, secondName: string): readonly [string, string] | null {
+  const first = process.env[firstName]
+  const second = process.env[secondName]
+  if (Boolean(first) !== Boolean(second)) throw new Error('incomplete credentials')
+  return first && second ? [first, second] : null
 }
 
 async function readBody(response: Response, limit: number): Promise<Uint8Array> {
@@ -100,20 +95,22 @@ function webcamFor(metadata: unknown, uid?: string): Record<string, unknown> {
   const result = isRecord(metadata.result) ? metadata.result : metadata
   if (!Array.isArray(result.webcams)) throw new Error('invalid metadata')
 
-  const cameras = result.webcams.filter((camera) => isRecord(camera) && camera.enabled === true && (!uid || camera.uid === uid))
+  const cameras = result.webcams.filter((camera) => isRecord(camera) && camera.enabled !== false && (!uid || camera.uid === uid))
   const [webcam] = cameras
   if (cameras.length !== 1 || typeof webcam.snapshot_url !== 'string' || !webcam.snapshot_url.trim()) throw new Error('camera unavailable')
   return webcam
 }
 
 async function fetchFrame(): Promise<Frame> {
-  const path = process.env.PRINTER_CONFIG_PATH || 'config/printer.yaml'
-  const source = await readFile(/* turbopackIgnore: true */ path, 'utf8')
-  const { moonraker, camera } = printerConfig.parse(parse(source))
+  const moonrakerUrl = configuredOrigin('MOONRAKER_URL')
+  const cameraOrigin = configuredOrigin('PRINTER_CAMERA_ORIGIN')
+  const cameraUid = process.env.PRINTER_CAMERA_UID?.trim() || undefined
+  const cameraCredentials = optionalPair('PRINTER_CAMERA_USER', 'PRINTER_CAMERA_PASSWORD')
   const moonrakerHeaders = new Headers({ accept: 'application/json' })
-  if (moonraker.auth === 'apiKey') moonrakerHeaders.set('x-api-key', credential('MOONRAKER_API_KEY'))
+  const apiKey = process.env.MOONRAKER_API_KEY
+  if (apiKey) moonrakerHeaders.set('x-api-key', apiKey)
 
-  const metadataResponse = await fetch(new URL('/server/webcams/list', moonraker.origin), {
+  const metadataResponse = await fetch(new URL('/server/webcams/list', moonrakerUrl), {
     headers: moonrakerHeaders,
     redirect: 'error',
     credentials: 'omit',
@@ -121,21 +118,19 @@ async function fetchFrame(): Promise<Frame> {
   })
   if (!metadataResponse.ok) throw new Error('metadata unavailable')
   const metadata = JSON.parse(new TextDecoder().decode(await readBody(metadataResponse, MAX_METADATA_BYTES))) as unknown
-  const webcam = webcamFor(metadata, camera.uid)
+  const webcam = webcamFor(metadata, cameraUid)
 
-  const snapshotUrl = new URL(webcam.snapshot_url as string, camera.origin)
+  const snapshotUrl = new URL(webcam.snapshot_url as string, cameraOrigin)
   if (
     (snapshotUrl.protocol !== 'http:' && snapshotUrl.protocol !== 'https:')
     || snapshotUrl.username
     || snapshotUrl.password
-    || snapshotUrl.origin !== camera.origin.origin
+    || snapshotUrl.origin !== cameraOrigin.origin
   ) throw new Error('invalid snapshot URL')
 
-  const [rotation, flipHorizontal, flipVertical] = [
-    webcam.rotation,
-    webcam.flip_horizontal,
-    webcam.flip_vertical,
-  ]
+  const rotation = webcam.rotation ?? 0
+  const flipHorizontal = webcam.flip_horizontal ?? false
+  const flipVertical = webcam.flip_vertical ?? false
   if (
     typeof rotation !== 'number'
     || !Number.isInteger(rotation)
@@ -145,10 +140,10 @@ async function fetchFrame(): Promise<Frame> {
   ) throw new Error('invalid camera metadata')
 
   const cameraHeaders = new Headers({ accept: 'image/jpeg, image/png' })
-  if (camera.auth === 'basic') {
-    const user = credential('PRINTER_CAMERA_USER')
+  if (cameraCredentials) {
+    const [user, password] = cameraCredentials
     if (user.includes(':')) throw new Error('invalid Basic username')
-    cameraHeaders.set('authorization', `Basic ${Buffer.from(`${user}:${credential('PRINTER_CAMERA_PASSWORD')}`).toString('base64')}`)
+    cameraHeaders.set('authorization', `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`)
   }
   const frameResponse = await fetch(snapshotUrl, {
     headers: cameraHeaders,

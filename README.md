@@ -121,27 +121,22 @@ PROJECTS_CONFIG_PATH=/app/config/projects.yaml
 
 Раздел `/?screen=printer` показывает снимок камеры и время его получения. Кадр обновляется раз в 10 секунд, пока раздел открыт и вкладка видна; нажатие увеличивает изображение. Управления принтером нет.
 
-В уже смонтированном каталоге `config` создайте **серверный** `printer.yaml`. Файл не раздаётся через HTTP и не включается в снимок каталога. Пример для защищённых подключений (адреса замените своими):
-
-```yaml
-moonraker:
-  origin: https://moonraker.example.org
-  auth: apiKey
-camera:
-  origin: https://camera.example.org
-  auth: basic
-```
-
-В Compose передайте значения из окружения только сервису `homepage` (добавьте к его существующему `environment`):
+Передайте подключение только через окружение Compose сервиса `homepage` (добавьте к его существующему `environment`):
 
 ```yaml
 environment:
-  MOONRAKER_API_KEY: ${MOONRAKER_API_KEY:?required}
-  PRINTER_CAMERA_USER: ${PRINTER_CAMERA_USER:?required}
-  PRINTER_CAMERA_PASSWORD: ${PRINTER_CAMERA_PASSWORD:?required}
+  MOONRAKER_URL: http://moonraker.example.org:7125
+  PRINTER_CAMERA_ORIGIN: http://camera.example.org
+  # Необязательно при единственной камере:
+  PRINTER_CAMERA_UID: camera-uid
+  # Необязательно, если Moonraker требует API key:
+  MOONRAKER_API_KEY: ${MOONRAKER_API_KEY:-}
+  # Необязательно; пара обязательна целиком для Basic auth камеры:
+  PRINTER_CAMERA_USER: ${PRINTER_CAMERA_USER:-}
+  PRINTER_CAMERA_PASSWORD: ${PRINTER_CAMERA_PASSWORD:-}
 ```
 
-Если конкретный сервис не требует авторизации, опустите его `auth` и соответствующие переменные Compose. При выбранной авторизации отсутствие секрета — ошибка, а не переход к анонимному доступу. Адреса должны быть доступны из контейнера; для передачи секретов используйте HTTPS или защищённый сетевой канал. Если включено несколько камер, укажите `camera.uid` из `/server/webcams/list`. Для другой точки монтирования можно задать `PRINTER_CONFIG_PATH`.
+`MOONRAKER_URL` и `PRINTER_CAMERA_ORIGIN` обязательны и должны быть URL-адресами без пути, query, fragment или встроенных учётных данных. API key Moonraker необязателен. Для Basic auth камеры задавайте `PRINTER_CAMERA_USER` и `PRINTER_CAMERA_PASSWORD` только парой: задано одно значение — маршрут завершается ошибкой, а не переходит к анонимному доступу. Адреса должны быть доступны **из контейнера**; для передачи секретов используйте HTTPS или защищённый сетевой канал. Если включено несколько камер, укажите `PRINTER_CAMERA_UID` из `/server/webcams/list`. Снимок принимается только с того же origin, что указан в `PRINTER_CAMERA_ORIGIN`; URL из метаданных не может перенаправить контейнер к другому host.
 
 Браузер читает только `/api/printer/frame` на этом же сайте; защитите этот маршрут тем же входом, что и главную страницу. Модулю нужен `snapshot_url` с JPEG или PNG: один лишь видеопоток не подходит.
 
