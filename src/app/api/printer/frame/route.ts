@@ -1,4 +1,7 @@
 import 'server-only'
+import { readFile } from 'node:fs/promises'
+import { parse } from 'yaml'
+import { z } from 'zod'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -26,21 +29,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
-function configuredUrl(name: string): URL {
-  const value = process.env[name]
-  if (!value) throw new Error('missing configuration')
-
+function checkedOrigin(value: string): URL {
   const url = new URL(value)
   if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.username || url.password) {
     throw new Error('invalid configuration')
   }
+  if (url.pathname !== '/' || url.search || url.hash) throw new Error('invalid configuration')
   return url
 }
 
-function configuredOrigin(name: string): URL {
-  const url = configuredUrl(name)
-  if (url.pathname !== '/' || url.search || url.hash) throw new Error('invalid configuration')
-  return url
+const printerConfig = z.strictObject({
+  moonraker: z.strictObject({ origin: z.string().transform(checkedOrigin), auth: z.enum(['none', 'apiKey']).default('none') }),
+  camera: z.strictObject({ origin: z.string().transform(checkedOrigin), uid: z.string().trim().min(1).optional(), auth: z.enum(['none', 'basic']).default('none') }),
+})
+
+function credential(name: string): string {
+  const value = process.env[name]
+  if (!value) throw new Error('missing credential')
+  return value
 }
 
 async function readBody(response: Response, limit: number): Promise<Uint8Array> {
@@ -101,16 +107,13 @@ function webcamFor(metadata: unknown, uid?: string): Record<string, unknown> {
 }
 
 async function fetchFrame(): Promise<Frame> {
-  const moonrakerUrl = configuredUrl('MOONRAKER_URL')
-  const cameraOrigin = configuredOrigin('PRINTER_CAMERA_ORIGIN')
-  const cameraUid = process.env.PRINTER_CAMERA_UID
-
-
+  const path = process.env.PRINTER_CONFIG_PATH || 'config/printer.yaml'
+  const source = await readFile(/* turbopackIgnore: true */ path, 'utf8')
+  const { moonraker, camera } = printerConfig.parse(parse(source))
   const moonrakerHeaders = new Headers({ accept: 'application/json' })
-  const apiKey = process.env.MOONRAKER_API_KEY
-  if (apiKey) moonrakerHeaders.set('x-api-key', apiKey)
+  if (moonraker.auth === 'apiKey') moonrakerHeaders.set('x-api-key', credential('MOONRAKER_API_KEY'))
 
-  const metadataResponse = await fetch(new URL('/server/webcams/list', moonrakerUrl), {
+  const metadataResponse = await fetch(new URL('/server/webcams/list', moonraker.origin), {
     headers: moonrakerHeaders,
     redirect: 'error',
     credentials: 'omit',
@@ -118,14 +121,14 @@ async function fetchFrame(): Promise<Frame> {
   })
   if (!metadataResponse.ok) throw new Error('metadata unavailable')
   const metadata = JSON.parse(new TextDecoder().decode(await readBody(metadataResponse, MAX_METADATA_BYTES))) as unknown
-  const webcam = webcamFor(metadata, cameraUid)
+  const webcam = webcamFor(metadata, camera.uid)
 
-  const snapshotUrl = new URL(webcam.snapshot_url as string, cameraOrigin)
+  const snapshotUrl = new URL(webcam.snapshot_url as string, camera.origin)
   if (
     (snapshotUrl.protocol !== 'http:' && snapshotUrl.protocol !== 'https:')
     || snapshotUrl.username
     || snapshotUrl.password
-    || snapshotUrl.origin !== cameraOrigin.origin
+    || snapshotUrl.origin !== camera.origin.origin
   ) throw new Error('invalid snapshot URL')
 
   const [rotation, flipHorizontal, flipVertical] = [
@@ -141,8 +144,14 @@ async function fetchFrame(): Promise<Frame> {
     || typeof flipVertical !== 'boolean'
   ) throw new Error('invalid camera metadata')
 
+  const cameraHeaders = new Headers({ accept: 'image/jpeg, image/png' })
+  if (camera.auth === 'basic') {
+    const user = credential('PRINTER_CAMERA_USER')
+    if (user.includes(':')) throw new Error('invalid Basic username')
+    cameraHeaders.set('authorization', `Basic ${Buffer.from(`${user}:${credential('PRINTER_CAMERA_PASSWORD')}`).toString('base64')}`)
+  }
   const frameResponse = await fetch(snapshotUrl, {
-    headers: { accept: 'image/jpeg, image/png' },
+    headers: cameraHeaders,
     redirect: 'error',
     credentials: 'omit',
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),

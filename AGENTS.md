@@ -15,7 +15,7 @@
 - Keep the application on Next.js standalone with `node server.js`.
 - Do not add Nginx or another web server to the application image.
 - Do not embed the production directory YAML in the image.
-- Runtime uses three operator-owned files mounted read-only at `/app/config`: required `global.yaml`, required `catalog.yaml`, and optional `projects.yaml`.
+- Runtime mounts operator-owned files read-only at `/app/config`: required `global.yaml` and `catalog.yaml`, optional `projects.yaml`, and server-only `printer.yaml` for the printer module. Never include printer configuration or credentials in directory snapshots or HTTP config routes.
 - Runtime uses no formatter sidecar; the application never rewrites mounted files.
 - Preserve `HOMEPAGE_ALLOWED_HOSTS` validation.
 - Authentication belongs at the Caddy/TinyAuth Forward Auth boundary; do not add a second login/session layer inside the application.
