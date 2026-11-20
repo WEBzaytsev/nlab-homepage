@@ -1,7 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { AlertTriangle, Maximize2, Monitor, Moon, RefreshCw, Search, Sun, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AlertTriangle, Monitor, Moon, Search, Sun, X } from 'lucide-react'
 import { ServiceCard } from './components/ServiceCard'
 import { useDirectorySnapshot } from './domain/use-directory-snapshot'
 import {
@@ -47,61 +47,75 @@ function filteredGroup(group: PresentedServiceGroup, needle: string): PresentedS
   return { ...group, services: group.services.filter((service) => service.searchText.includes(needle)) }
 }
 
-type PrinterFrame = Readonly<{
-  url: string
-  frameTime: number | null
-  rotation: number
-  flipHorizontal: boolean
-  flipVertical: boolean
-}>
-
-function usePrinterFrame(active: boolean) {
-  const [frame, setFrame] = useState<PrinterFrame | null>(null)
+function usePrinterStream(active: boolean) {
+  const [visible, setVisible] = useState(() => typeof document === 'undefined' || document.visibilityState === 'visible')
+  const [attempt, setAttempt] = useState(0)
   const [warning, setWarning] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!active) return
+    const updateVisibility = () => setVisible(document.visibilityState === 'visible')
+    document.addEventListener('visibilitychange', updateVisibility)
+    return () => document.removeEventListener('visibilitychange', updateVisibility)
+  }, [active])
+
+  useEffect(() => {
+    if (!active || !visible || !warning) return
+    const retry = window.setTimeout(() => setAttempt((value) => value + 1), 5_000)
+    return () => window.clearTimeout(retry)
+  }, [active, visible, warning])
+
+  return {
+    streamUrl: active && visible ? `/api/printer/stream?attempt=${attempt}` : null,
+    streamWarning: warning,
+    streamReady: () => setWarning(null),
+    streamFailed: () => setWarning('Прямая трансляция камеры временно недоступна.'),
+  }
+}
+
+type PrinterLight = Readonly<{ enabled: boolean }>
+
+function usePrinterLight(active: boolean) {
+  const [light, setLight] = useState<PrinterLight | null>(null)
+  const [warning, setWarning] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
   const requestRef = useRef<AbortController | null>(null)
-  const frameUrlRef = useRef<string | null>(null)
 
   const refresh = useCallback(async () => {
     if (requestRef.current || document.visibilityState === 'hidden') return
     const request = new AbortController()
     requestRef.current = request
-
     try {
-      const response = await fetch('/api/printer/frame', { cache: 'no-store', signal: request.signal })
-      if (response.status === 503) throw new Error('Принтер не настроен или временно недоступен.')
-      if (!response.ok) throw new Error('Не удалось обновить изображение принтера.')
-      if (!/^image\/(jpeg|png)$/.test(response.headers.get('content-type') ?? '')) {
-        throw new Error('Сервер вернул изображение в неподдерживаемом формате.')
-      }
-
-      const url = URL.createObjectURL(await response.blob())
-      const frameTimeHeader = response.headers.get('X-Frame-Time')
-      const rotationHeader = response.headers.get('X-Rotation')
-      const previousUrl = frameUrlRef.current
-      frameUrlRef.current = url
-      if (previousUrl) URL.revokeObjectURL(previousUrl)
-      setFrame({
-        url,
-        frameTime: frameTimeHeader !== null && Number.isFinite(Number(frameTimeHeader))
-          ? Number(frameTimeHeader)
-          : null,
-        rotation: rotationHeader !== null && Number.isFinite(Number(rotationHeader))
-          ? Number(rotationHeader)
-          : 0,
-        flipHorizontal: response.headers.get('X-Flip-Horizontal') === 'true',
-        flipVertical: response.headers.get('X-Flip-Vertical') === 'true',
-      })
+      const response = await fetch('/api/printer/light', { cache: 'no-store', signal: request.signal })
+      if (!response.ok) throw new Error('Подсветка камеры временно недоступна.')
+      setLight(await response.json() as PrinterLight)
       setWarning(null)
     } catch (error) {
-      if (!request.signal.aborted) {
-        setWarning(error instanceof Error ? error.message : 'Не удалось обновить изображение принтера.')
-      }
+      if (!request.signal.aborted) setWarning(error instanceof Error ? error.message : 'Подсветка камеры временно недоступна.')
     } finally {
       if (requestRef.current === request) requestRef.current = null
-      setLoading(false)
     }
   }, [])
+
+  const setEnabled = useCallback(async (enabled: boolean) => {
+    if (pending || light === null || light.enabled === enabled) return
+    setPending(true)
+    setWarning(null)
+    try {
+      const response = await fetch('/api/printer/light', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      })
+      if (!response.ok) throw new Error('Не удалось изменить подсветку камеры.')
+      setLight(await response.json() as PrinterLight)
+    } catch (error) {
+      setWarning(error instanceof Error ? error.message : 'Не удалось изменить подсветку камеры.')
+      void refresh()
+    } finally {
+      setPending(false)
+    }
+  }, [light, pending, refresh])
 
   useEffect(() => {
     if (!active) return
@@ -118,11 +132,7 @@ function usePrinterFrame(active: boolean) {
     }
   }, [active, refresh])
 
-  useEffect(() => () => {
-    if (frameUrlRef.current) URL.revokeObjectURL(frameUrlRef.current)
-  }, [])
-
-  return { frame, loading, refresh, warning }
+  return { light, pending, setEnabled, warning }
 }
 
 type PrinterTelemetry = Readonly<{
@@ -186,7 +196,8 @@ function usePrinterTelemetry(active: boolean) {
 function App({ initialScreen, initialSnapshot }: { initialScreen: Screen; initialSnapshot: DirectorySnapshot }) {
   const directory = useDirectorySnapshot(initialSnapshot)
   const [screen, setScreen] = useState<Screen>(initialScreen)
-  const printer = usePrinterFrame(screen === 'printer')
+  const stream = usePrinterStream(screen === 'printer')
+  const light = usePrinterLight(screen === 'printer')
   const telemetry = usePrinterTelemetry(screen === 'printer')
   const [screenTransition, setScreenTransition] = useState<ScreenTransition>('idle')
   const [query, setQuery] = useState('')
@@ -455,7 +466,7 @@ function App({ initialScreen, initialSnapshot }: { initialScreen: Screen; initia
           ) : screen === 'projects' ? (
             <ProjectsScreen projects={visibleProjects} query={query} />
           ) : (
-            <PrinterScreen {...printer} telemetry={telemetry} />
+            <PrinterScreen {...stream} {...light} telemetry={telemetry} />
           )}
         </div>
       </main>
@@ -465,19 +476,18 @@ function App({ initialScreen, initialSnapshot }: { initialScreen: Screen; initia
 }
 
 function PrinterScreen({
-  frame,
-  loading,
-  refresh,
-  warning,
+  streamUrl,
+  streamWarning,
+  streamReady,
+  streamFailed,
+  light,
+  pending,
+  setEnabled,
+  warning: lightWarning,
   telemetry,
-}: ReturnType<typeof usePrinterFrame> & { telemetry: ReturnType<typeof usePrinterTelemetry> }) {
-  const dialogRef = useRef<HTMLDialogElement>(null)
-  const transform = frame ? {
-    transform: `rotate(${frame.rotation}deg) scale(${frame.flipHorizontal ? -1 : 1}, ${frame.flipVertical ? -1 : 1})`,
-  } satisfies CSSProperties : undefined
-  const frameTime = frame?.frameTime === null || frame === null
-    ? 'Время кадра не указано'
-    : new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'medium' }).format(frame.frameTime)
+}: ReturnType<typeof usePrinterStream> & ReturnType<typeof usePrinterLight> & { telemetry: ReturnType<typeof usePrinterTelemetry> }) {
+  const warning = streamWarning ?? lightWarning
+  const lightStatus = light === null ? 'Состояние подсветки неизвестно' : light.enabled ? 'Включена' : 'Выключена'
 
   return (
     <section className="printer-screen" aria-labelledby="printer-title">
@@ -486,45 +496,33 @@ function PrinterScreen({
           <p>Камера</p>
           <h2 id="printer-title">Принтер</h2>
         </div>
-        <button className="printer-refresh" onClick={() => void refresh()} type="button">
-          <RefreshCw size={16} aria-hidden="true" /> Обновить
-        </button>
       </header>
-      {warning && (
-        <div className="printer-warning" role="alert">
-          <AlertTriangle size={18} aria-hidden="true" />
-          <span>{warning}{frame ? ' Показан предыдущий кадр.' : ''}</span>
-        </div>
-      )}
+      {warning && <div className="printer-warning" role="alert"><AlertTriangle size={18} aria-hidden="true" /><span>{warning}</span></div>}
       <div className="printer-dashboard">
         <div>
           <div className="printer-frame">
-            {frame ? (
-              <button
-                className="printer-frame-button"
-                onClick={() => dialogRef.current?.showModal()}
-                type="button"
-                aria-label="Открыть изображение принтера в полном размере"
-              >
-                <img alt="Камера принтера" src={frame.url} style={transform} />
-                <span><Maximize2 size={17} aria-hidden="true" /> Увеличить</span>
-              </button>
+            {streamUrl ? (
+              <img className="printer-live-stream" alt="Прямая трансляция камеры принтера" onError={streamFailed} onLoad={streamReady} src={streamUrl} />
             ) : (
-              <div className="printer-frame-empty" role="status">
-                {loading ? 'Загрузка изображения принтера…' : 'Изображение принтера пока недоступно.'}
-              </div>
+              <div className="printer-frame-empty" role="status">Трансляция остановлена, пока вкладка скрыта.</div>
             )}
           </div>
-          {frame && <p className="printer-frame-time">Кадр: {frameTime}</p>}
+          <p className="printer-frame-time">Прямая трансляция · соединение закрывается при уходе с экрана или скрытии вкладки.</p>
+          <section className="printer-light" aria-labelledby="printer-light-title">
+            <div><p>Камера</p><h3 id="printer-light-title">Подсветка камеры</h3><small aria-live="polite">{pending ? 'Применение…' : lightStatus}</small></div>
+            <button
+              aria-checked={light?.enabled ?? false}
+              aria-labelledby="printer-light-title"
+              className="printer-light-switch"
+              disabled={light === null || pending}
+              onClick={() => void setEnabled(!(light?.enabled ?? false))}
+              role="switch"
+              type="button"
+            ><span aria-hidden="true" /></button>
+          </section>
         </div>
         <PrinterTelemetryPanel {...telemetry} />
       </div>
-      <dialog className="printer-dialog" ref={dialogRef} aria-label="Изображение принтера">
-        <button className="printer-dialog-close" onClick={() => dialogRef.current?.close()} type="button" aria-label="Закрыть">
-          <X size={18} aria-hidden="true" />
-        </button>
-        {frame && <img alt="Камера принтера, увеличенное изображение" src={frame.url} style={transform} />}
-      </dialog>
     </section>
   )
 }
