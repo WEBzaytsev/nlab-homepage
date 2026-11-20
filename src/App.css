@@ -380,6 +380,7 @@ main { width: min(1420px, calc(100% - 48px)); margin: 0 auto; padding: 112px 0 6
 .project-inline-grid { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
 
 .printer-screen { width: min(960px, 100%); margin: 0 auto; }
+.printer-dashboard { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr); gap: 18px; align-items: start; }
 .printer-heading { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .printer-heading p { margin: 0 0 5px; color: var(--muted); font: 650 10px/1 var(--font-martian-mono), ui-monospace, monospace; letter-spacing: 0.08em; text-transform: uppercase; }
 .printer-heading h2 { margin: 0; font-size: 30px; letter-spacing: -0.05em; }
@@ -398,6 +399,27 @@ main { width: min(1420px, calc(100% - 48px)); margin: 0 auto; padding: 112px 0 6
 .printer-dialog::backdrop { background: rgba(0, 0, 0, 0.74); }
 .printer-dialog img { display: block; max-width: 100%; max-height: calc(100vh - 96px); margin: 0 auto; object-fit: contain; }
 .printer-dialog-close { position: absolute; top: 9px; right: 9px; width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 50%; background: var(--soft); color: var(--text); cursor: pointer; }
+.printer-telemetry { min-width: 0; padding: 18px; border: 1px solid var(--line); border-radius: 24px; background: var(--surface); }
+.printer-telemetry > p { margin: 0 0 5px; color: var(--muted); font: 650 10px/1 var(--font-martian-mono), ui-monospace, monospace; letter-spacing: 0.08em; text-transform: uppercase; }
+.printer-telemetry h3 { margin: 0 0 16px; font-size: 20px; letter-spacing: -0.04em; }
+.printer-telemetry-empty { min-height: 168px; display: grid; place-items: center; color: var(--muted); font-size: 12px; text-align: center; }
+.printer-telemetry-warning { margin-bottom: 12px; }
+.telemetry-job { display: grid; gap: 7px; padding: 12px; border-radius: 15px; background: var(--soft); }
+.telemetry-job strong { font-size: 14px; text-transform: capitalize; }
+.telemetry-job span { overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.telemetry-job small, .telemetry-note { color: var(--muted); font: 10px/1.4 var(--font-martian-mono), ui-monospace, monospace; }
+.telemetry-progress { height: 7px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--line-strong) 60%, transparent); }
+.telemetry-progress i { display: block; height: 100%; border-radius: inherit; background: var(--cobalt); }
+.telemetry-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.telemetry-summary span { display: grid; gap: 3px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; font: 12px/1.3 var(--font-martian-mono), ui-monospace, monospace; }
+.telemetry-summary b { color: var(--muted); font-size: 9px; letter-spacing: 0.08em; }
+.telemetry-note { display: block; margin: 8px 1px 0; }
+.telemetry-group { margin-top: 18px; }
+.telemetry-group h4 { margin: 0 0 8px; color: var(--muted); font: 650 10px/1 var(--font-martian-mono), ui-monospace, monospace; letter-spacing: 0.08em; text-transform: uppercase; }
+.telemetry-group dl { display: grid; gap: 1px; margin: 0; border-top: 1px solid var(--line); }
+.telemetry-group dl > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.telemetry-group dt { overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.telemetry-group dd { margin: 0; font: 10px/1.4 var(--font-martian-mono), ui-monospace, monospace; white-space: nowrap; }
 
 :root[data-theme='dark'] .service-card {
   color: var(--text);
@@ -479,6 +501,7 @@ main { width: min(1420px, calc(100% - 48px)); margin: 0 auto; padding: 112px 0 6
   .service-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .featured-grid, .project-inline-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .project-row { padding: 26px 0; }
+  .printer-dashboard { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (max-width: 560px) {
