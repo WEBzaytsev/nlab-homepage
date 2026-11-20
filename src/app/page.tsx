@@ -10,6 +10,7 @@ function initialScreenFrom(
   params: Record<string, string | string[] | undefined>,
   projectsAvailable: boolean,
 ): Screen {
+  if (params.screen === 'printer') return 'printer'
   return projectsAvailable && (params.project !== undefined || params.screen === 'projects') ? 'projects' : 'catalog'
 }
 

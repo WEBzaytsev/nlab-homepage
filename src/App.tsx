@@ -1,7 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Monitor, Moon, Search, Sun, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { AlertTriangle, Maximize2, Monitor, Moon, RefreshCw, Search, Sun, X } from 'lucide-react'
 import { ServiceCard } from './components/ServiceCard'
 import { useDirectorySnapshot } from './domain/use-directory-snapshot'
 import {
@@ -26,7 +26,7 @@ const CONFIG_UPDATE_COPY = {
   },
 } satisfies Record<DirectoryRefreshError['code'], { title: string; description: string }>
 
-export type Screen = 'catalog' | 'projects'
+export type Screen = 'catalog' | 'projects' | 'printer'
 type ScreenTransition = 'idle' | 'forward' | 'backward'
 type Theme = 'dark' | 'light'
 type ThemeMode = 'auto' | Theme
@@ -38,18 +38,97 @@ type ThemeMediaEvents = {
 }
 
 function readScreenFromUrl(projectsAvailable: boolean): Screen {
-  if (!projectsAvailable) return 'catalog'
   const params = new URLSearchParams(window.location.search)
-  return params.has('project') || params.get('screen') === 'projects' ? 'projects' : 'catalog'
+  if (params.get('screen') === 'printer') return 'printer'
+  return projectsAvailable && (params.has('project') || params.get('screen') === 'projects') ? 'projects' : 'catalog'
 }
 
 function filteredGroup(group: PresentedServiceGroup, needle: string): PresentedServiceGroup {
   return { ...group, services: group.services.filter((service) => service.searchText.includes(needle)) }
 }
 
+type PrinterFrame = Readonly<{
+  url: string
+  frameTime: number | null
+  rotation: number
+  flipHorizontal: boolean
+  flipVertical: boolean
+}>
+
+function usePrinterFrame(active: boolean) {
+  const [frame, setFrame] = useState<PrinterFrame | null>(null)
+  const [warning, setWarning] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const requestRef = useRef<AbortController | null>(null)
+  const frameUrlRef = useRef<string | null>(null)
+
+  const refresh = useCallback(async () => {
+    if (requestRef.current || document.visibilityState === 'hidden') return
+    const request = new AbortController()
+    requestRef.current = request
+
+    try {
+      const response = await fetch('/api/printer/frame', { cache: 'no-store', signal: request.signal })
+      if (response.status === 503) throw new Error('Принтер не настроен или временно недоступен.')
+      if (!response.ok) throw new Error('Не удалось обновить изображение принтера.')
+      if (!/^image\/(jpeg|png)$/.test(response.headers.get('content-type') ?? '')) {
+        throw new Error('Сервер вернул изображение в неподдерживаемом формате.')
+      }
+
+      const url = URL.createObjectURL(await response.blob())
+      const frameTimeHeader = response.headers.get('X-Frame-Time')
+      const rotationHeader = response.headers.get('X-Rotation')
+      const previousUrl = frameUrlRef.current
+      frameUrlRef.current = url
+      if (previousUrl) URL.revokeObjectURL(previousUrl)
+      setFrame({
+        url,
+        frameTime: frameTimeHeader !== null && Number.isFinite(Number(frameTimeHeader))
+          ? Number(frameTimeHeader)
+          : null,
+        rotation: rotationHeader !== null && Number.isFinite(Number(rotationHeader))
+          ? Number(rotationHeader)
+          : 0,
+        flipHorizontal: response.headers.get('X-Flip-Horizontal') === 'true',
+        flipVertical: response.headers.get('X-Flip-Vertical') === 'true',
+      })
+      setWarning(null)
+    } catch (error) {
+      if (!request.signal.aborted) {
+        setWarning(error instanceof Error ? error.message : 'Не удалось обновить изображение принтера.')
+      }
+    } finally {
+      if (requestRef.current === request) requestRef.current = null
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!active) return
+    void refresh()
+    const interval = window.setInterval(() => void refresh(), 10_000)
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') void refresh()
+    }
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+    return () => {
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+      requestRef.current?.abort()
+    }
+  }, [active, refresh])
+
+  useEffect(() => () => {
+    if (frameUrlRef.current) URL.revokeObjectURL(frameUrlRef.current)
+  }, [])
+
+  return { frame, loading, refresh, warning }
+}
+
 function App({ initialScreen, initialSnapshot }: { initialScreen: Screen; initialSnapshot: DirectorySnapshot }) {
   const directory = useDirectorySnapshot(initialSnapshot)
   const [screen, setScreen] = useState<Screen>(initialScreen)
+  const printer = usePrinterFrame(screen === 'printer')
   const [screenTransition, setScreenTransition] = useState<ScreenTransition>('idle')
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
@@ -84,12 +163,14 @@ function App({ initialScreen, initialSnapshot }: { initialScreen: Screen; initia
   const visibleServiceCount = useMemo(() => (
     screen === 'catalog'
       ? visibleFixed.reduce((total, group) => total + group.services.length, 0)
-      : visibleProjects.reduce((total, project) => total + project.services.length, 0)
+      : screen === 'projects'
+        ? visibleProjects.reduce<number>((total, project) => total + project.services.length, 0)
+        : 0
   ), [screen, visibleFixed, visibleProjects])
 
   const transitionToScreen = useCallback((nextScreen: Screen) => {
     if (nextScreen === screen) return
-    setScreenTransition(nextScreen === 'projects' ? 'forward' : 'backward')
+    setScreenTransition(nextScreen === 'catalog' ? 'backward' : 'forward')
     setScreen(nextScreen)
   }, [screen])
 
@@ -146,10 +227,13 @@ function App({ initialScreen, initialSnapshot }: { initialScreen: Screen; initia
 
   useEffect(() => {
     const url = new URL(window.location.href)
-    const requestedProjects = url.searchParams.has('project') || url.searchParams.get('screen') === 'projects'
-    if (!requestedProjects) return
+    if (!url.searchParams.has('project') && url.searchParams.get('screen') !== 'projects') return
 
     url.searchParams.delete('project')
+    if (url.searchParams.get('screen') === 'printer') {
+      window.history.replaceState(window.history.state, '', url)
+      return
+    }
     if (projectsAvailable) {
       url.searchParams.set('screen', 'projects')
     } else {
@@ -171,8 +255,8 @@ function App({ initialScreen, initialSnapshot }: { initialScreen: Screen; initia
 
   const updateUrl = useCallback((nextScreen: Screen) => {
     const url = new URL(window.location.href)
-    if (nextScreen === 'projects') url.searchParams.set('screen', 'projects')
-    else url.searchParams.delete('screen')
+    if (nextScreen === 'catalog') url.searchParams.delete('screen')
+    else url.searchParams.set('screen', nextScreen)
     url.searchParams.delete('project')
     window.history.pushState({}, '', url)
   }, [])
@@ -186,8 +270,8 @@ function App({ initialScreen, initialSnapshot }: { initialScreen: Screen; initia
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [screen, transitionToScreen, updateUrl])
 
-  const title = screen === 'catalog' ? 'Каталог' : 'Проекты'
-  const searchExpanded = searchOpen || query.length > 0
+  const title = screen === 'catalog' ? 'Каталог' : screen === 'projects' ? 'Проекты' : 'Принтер'
+  const searchExpanded = screen !== 'printer' && (searchOpen || query.length > 0)
   const themeActionLabel = themeMode === 'auto'
     ? `Автотема: ${theme === 'dark' ? 'тёмная' : 'светлая'}. Включить тёмную тему`
     : themeMode === 'dark'
@@ -218,7 +302,7 @@ function App({ initialScreen, initialSnapshot }: { initialScreen: Screen; initia
           </button>
 
           <nav
-            className={`screen-tabs${projectsAvailable ? ' has-projects' : ''}${screen === 'projects' ? ' projects-active' : ''}`}
+            className={`screen-tabs tab-count-${projectsAvailable ? 3 : 2}${screen === 'projects' ? ' projects-active' : ''}${screen === 'printer' ? ' printer-active' : ''}`}
             aria-label="Экраны"
           >
             <button
@@ -239,10 +323,18 @@ function App({ initialScreen, initialSnapshot }: { initialScreen: Screen; initia
                 Проекты
               </button>
             )}
+            <button
+              aria-current={screen === 'printer' ? 'page' : undefined}
+              className={screen === 'printer' ? 'active' : ''}
+              onClick={() => openScreen('printer')}
+              type="button"
+            >
+              Принтер
+            </button>
           </nav>
 
           <div className="nav-actions">
-            <div
+            {screen !== 'printer' && <div
               aria-label="Поиск по текущему экрану"
               className={`header-search${searchExpanded ? ' open' : ''}`}
               role="search"
@@ -271,7 +363,7 @@ function App({ initialScreen, initialSnapshot }: { initialScreen: Screen; initia
               >
                 {searchExpanded ? <X size={16} aria-hidden="true" /> : <Search size={16} aria-hidden="true" />}
               </button>
-            </div>
+            </div>}
             <button
               className="nav-icon-action"
               aria-label={themeActionLabel}
@@ -290,7 +382,7 @@ function App({ initialScreen, initialSnapshot }: { initialScreen: Screen; initia
       <main>
         <h1 className="sr-only">{title}</h1>
 
-        {query.trim() && (
+        {screen !== 'printer' && query.trim() && (
           <div className="search-summary" role="status" aria-live="polite">
             <span>Найдено: {visibleServiceCount}</span>
             <button type="button" onClick={() => setQuery('')}>Сбросить</button>
@@ -301,13 +393,74 @@ function App({ initialScreen, initialSnapshot }: { initialScreen: Screen; initia
           {directory.status === 'stale' && <ConfigUpdateFailure error={directory.error} />}
           {screen === 'catalog' ? (
             <CatalogScreen groups={visibleFixed} query={query} />
-          ) : (
+          ) : screen === 'projects' ? (
             <ProjectsScreen projects={visibleProjects} query={query} />
+          ) : (
+            <PrinterScreen {...printer} />
           )}
         </div>
       </main>
 
     </div>
+  )
+}
+
+function PrinterScreen({
+  frame,
+  loading,
+  refresh,
+  warning,
+}: ReturnType<typeof usePrinterFrame>) {
+  const dialogRef = useRef<HTMLDialogElement>(null)
+  const transform = frame ? {
+    transform: `rotate(${frame.rotation}deg) scale(${frame.flipHorizontal ? -1 : 1}, ${frame.flipVertical ? -1 : 1})`,
+  } satisfies CSSProperties : undefined
+  const frameTime = frame?.frameTime === null || frame === null
+    ? 'Время кадра не указано'
+    : new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'medium' }).format(frame.frameTime)
+
+  return (
+    <section className="printer-screen" aria-labelledby="printer-title">
+      <header className="printer-heading">
+        <div>
+          <p>Камера</p>
+          <h2 id="printer-title">Принтер</h2>
+        </div>
+        <button className="printer-refresh" onClick={() => void refresh()} type="button">
+          <RefreshCw size={16} aria-hidden="true" /> Обновить
+        </button>
+      </header>
+      {warning && (
+        <div className="printer-warning" role="alert">
+          <AlertTriangle size={18} aria-hidden="true" />
+          <span>{warning}{frame ? ' Показан предыдущий кадр.' : ''}</span>
+        </div>
+      )}
+      <div className="printer-frame">
+        {frame ? (
+          <button
+            className="printer-frame-button"
+            onClick={() => dialogRef.current?.showModal()}
+            type="button"
+            aria-label="Открыть изображение принтера в полном размере"
+          >
+            <img alt="Камера принтера" src={frame.url} style={transform} />
+            <span><Maximize2 size={17} aria-hidden="true" /> Увеличить</span>
+          </button>
+        ) : (
+          <div className="printer-frame-empty" role="status">
+            {loading ? 'Загрузка изображения принтера…' : 'Изображение принтера пока недоступно.'}
+          </div>
+        )}
+      </div>
+      {frame && <p className="printer-frame-time">Кадр: {frameTime}</p>}
+      <dialog className="printer-dialog" ref={dialogRef} aria-label="Изображение принтера">
+        <button className="printer-dialog-close" onClick={() => dialogRef.current?.close()} type="button" aria-label="Закрыть">
+          <X size={18} aria-hidden="true" />
+        </button>
+        {frame && <img alt="Камера принтера, увеличенное изображение" src={frame.url} style={transform} />}
+      </dialog>
+    </section>
   )
 }
 
