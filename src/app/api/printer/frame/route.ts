@@ -1,10 +1,11 @@
 import 'server-only'
 
+import { FETCH_TIMEOUT_MS, cameraHeaders, configuredOrigin, moonrakerJson, readBody, sameOriginUrl, webcamFor } from '../printer'
+
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 const CACHE_MS = 10_000
-const FETCH_TIMEOUT_MS = 5_000
 const MAX_METADATA_BYTES = 256 * 1024
 const MAX_FRAME_BYTES = 5 * 1024 * 1024
 
@@ -22,58 +23,6 @@ type CachedFrame = Frame & Readonly<{ expiresAt: number }>
 let cachedFrame: CachedFrame | null = null
 let pendingFrame: Promise<Frame> | null = null
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
-}
-
-function configuredOrigin(name: string): URL {
-  const value = process.env[name]
-  if (!value) throw new Error('missing configuration')
-  const url = new URL(value)
-  if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.username || url.password) {
-    throw new Error('invalid configuration')
-  }
-  if (url.pathname !== '/' || url.search || url.hash) throw new Error('invalid configuration')
-  return url
-}
-
-function optionalPair(firstName: string, secondName: string): readonly [string, string] | null {
-  const first = process.env[firstName]
-  const second = process.env[secondName]
-  if (Boolean(first) !== Boolean(second)) throw new Error('incomplete credentials')
-  return first && second ? [first, second] : null
-}
-
-async function readBody(response: Response, limit: number): Promise<Uint8Array> {
-  const reader = response.body?.getReader()
-  if (!reader) throw new Error('missing response body')
-
-  const chunks: Uint8Array[] = []
-  let size = 0
-  try {
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      size += value.byteLength
-      if (size > limit) {
-        await reader.cancel()
-        throw new Error('response too large')
-      }
-      chunks.push(value)
-    }
-  } finally {
-    reader.releaseLock()
-  }
-
-  const body = new Uint8Array(size)
-  let offset = 0
-  for (const chunk of chunks) {
-    body.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return body
-}
-
 function imageContentType(bytes: Uint8Array): Frame['contentType'] | null {
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
   if (
@@ -90,44 +39,13 @@ function imageContentType(bytes: Uint8Array): Frame['contentType'] | null {
   return null
 }
 
-function webcamFor(metadata: unknown, uid?: string): Record<string, unknown> {
-  if (!isRecord(metadata)) throw new Error('invalid metadata')
-  const result = isRecord(metadata.result) ? metadata.result : metadata
-  if (!Array.isArray(result.webcams)) throw new Error('invalid metadata')
-
-  const cameras = result.webcams.filter((camera) => isRecord(camera) && camera.enabled !== false && (!uid || camera.uid === uid))
-  const [webcam] = cameras
-  if (cameras.length !== 1 || typeof webcam.snapshot_url !== 'string' || !webcam.snapshot_url.trim()) throw new Error('camera unavailable')
-  return webcam
-}
-
 async function fetchFrame(): Promise<Frame> {
-  const moonrakerUrl = configuredOrigin('MOONRAKER_URL')
   const cameraOrigin = configuredOrigin('PRINTER_CAMERA_ORIGIN')
   const cameraUid = process.env.PRINTER_CAMERA_UID?.trim() || undefined
-  const cameraCredentials = optionalPair('PRINTER_CAMERA_USER', 'PRINTER_CAMERA_PASSWORD')
-  const moonrakerHeaders = new Headers({ accept: 'application/json' })
-  const apiKey = process.env.MOONRAKER_API_KEY
-  if (apiKey) moonrakerHeaders.set('x-api-key', apiKey)
+  const webcam = webcamFor(await moonrakerJson('/server/webcams/list', MAX_METADATA_BYTES), cameraUid)
+  if (typeof webcam.snapshot_url !== 'string' || !webcam.snapshot_url.trim()) throw new Error('camera unavailable')
 
-  const metadataResponse = await fetch(new URL('/server/webcams/list', moonrakerUrl), {
-    headers: moonrakerHeaders,
-    redirect: 'error',
-    credentials: 'omit',
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-  })
-  if (!metadataResponse.ok) throw new Error('metadata unavailable')
-  const metadata = JSON.parse(new TextDecoder().decode(await readBody(metadataResponse, MAX_METADATA_BYTES))) as unknown
-  const webcam = webcamFor(metadata, cameraUid)
-
-  const snapshotUrl = new URL(webcam.snapshot_url as string, cameraOrigin)
-  if (
-    (snapshotUrl.protocol !== 'http:' && snapshotUrl.protocol !== 'https:')
-    || snapshotUrl.username
-    || snapshotUrl.password
-    || snapshotUrl.origin !== cameraOrigin.origin
-  ) throw new Error('invalid snapshot URL')
-
+  const snapshotUrl = sameOriginUrl(webcam.snapshot_url, cameraOrigin)
   const rotation = webcam.rotation ?? 0
   const flipHorizontal = webcam.flip_horizontal ?? false
   const flipVertical = webcam.flip_vertical ?? false
@@ -139,14 +57,8 @@ async function fetchFrame(): Promise<Frame> {
     || typeof flipVertical !== 'boolean'
   ) throw new Error('invalid camera metadata')
 
-  const cameraHeaders = new Headers({ accept: 'image/jpeg, image/png' })
-  if (cameraCredentials) {
-    const [user, password] = cameraCredentials
-    if (user.includes(':')) throw new Error('invalid Basic username')
-    cameraHeaders.set('authorization', `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`)
-  }
   const frameResponse = await fetch(snapshotUrl, {
-    headers: cameraHeaders,
+    headers: cameraHeaders(),
     redirect: 'error',
     credentials: 'omit',
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),

@@ -7,16 +7,17 @@ import {
   parseGlobalConfig,
   parseProjectsConfig,
 } from '../src/domain/directory-schema.ts'
-import { configRoleForPath } from './format-directory-config.ts'
+import { configRoleForPath, type ConfigRole } from './format-directory-config.ts'
 
 const requestedPaths = process.argv.slice(2)
 if (requestedPaths.length === 0) throw new Error('Укажите пути к YAML-конфигурации')
 
 let failed = false
 for (const path of requestedPaths) {
+  let role: ConfigRole | undefined
   try {
+    role = configRoleForPath(path)
     const source = await readFile(path, 'utf8')
-    const role = configRoleForPath(path)
     const data = role === 'global'
       ? parseGlobalConfig(source)
       : role === 'catalog'
@@ -26,10 +27,10 @@ for (const path of requestedPaths) {
     const services = collections.reduce((count, group) => count + group.services.length, 0)
     console.log(JSON.stringify({ scope: 'directory-config', status: 'valid', role, path, groups: collections.length, services }))
   } catch (error) {
-    const optionalMissing = configRoleForPath(path) === 'projects'
+    const optionalMissing = role === 'projects'
       && error instanceof Error && 'code' in error && error.code === 'ENOENT'
     if (optionalMissing) {
-      console.log(JSON.stringify({ scope: 'directory-config', status: 'absent', role: 'projects', path }))
+      console.log(JSON.stringify({ scope: 'directory-config', status: 'absent', role, path }))
       continue
     }
     failed = true

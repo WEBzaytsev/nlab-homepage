@@ -1,28 +1,9 @@
 import { type NextRequest, NextResponse } from 'next/server.js'
+import { hostAccessPolicy } from './lib/host-policy'
 
 const HOST_VALIDATION_ERROR = Object.freeze({
   error: 'Host validation failed. See logs for more details.',
 })
-
-type HostAccessPolicy =
-  | Readonly<{ mode: 'allow-all' }>
-  | Readonly<{ mode: 'allow-list'; hosts: ReadonlySet<string> }>
-
-function hostAccessPolicy(): HostAccessPolicy {
-  const port = process.env.PORT || '3000'
-  const configuredHosts = process.env.HOMEPAGE_ALLOWED_HOSTS ?? ''
-  if (configuredHosts === '*') return { mode: 'allow-all' }
-
-  return {
-    mode: 'allow-list',
-    hosts: new Set([
-      `localhost:${port}`,
-      `127.0.0.1:${port}`,
-      `[::1]:${port}`,
-      ...configuredHosts.split(',').filter(Boolean),
-    ]),
-  }
-}
 
 const HOST_ACCESS_POLICY = hostAccessPolicy()
 

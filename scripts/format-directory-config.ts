@@ -47,12 +47,13 @@ async function main() {
   let noncanonical = false
 
   for (const path of requestedPaths) {
+    const role = configRoleForPath(path)
     try {
       const status = await checkConfigFile(path)
       if (status === 'noncanonical') noncanonical = true
       console.log(JSON.stringify({ scope: 'directory-config-format', status, path }))
     } catch (error) {
-      const optionalMissing = configRoleForPath(path) === 'projects'
+      const optionalMissing = role === 'projects'
         && error instanceof Error && 'code' in error && error.code === 'ENOENT'
       if (!optionalMissing) throw error
       console.log(JSON.stringify({ scope: 'directory-config-format', status: 'absent', path }))

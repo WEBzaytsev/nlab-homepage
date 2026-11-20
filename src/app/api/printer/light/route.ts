@@ -1,55 +1,22 @@
 import 'server-only'
 
+import { originAllowedByHosts } from '../../../../lib/host-policy'
+import { isRecord, moonraker, moonrakerJson } from '../printer'
+
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-const FETCH_TIMEOUT_MS = 5_000
 const MAX_BODY_BYTES = 128
+const MAX_RESPONSE_BYTES = 256 * 1024
 const LIGHT_OBJECT = 'output_pin caselight'
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
-}
-
-function configuredMoonraker(): URL {
-  const value = process.env.MOONRAKER_URL
-  if (!value) throw new Error('missing configuration')
-  const url = new URL(value)
-  if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
-    throw new Error('invalid configuration')
-  }
-  return url
-}
-
-function allowedOrigins(): ReadonlySet<string> {
-  const hosts = process.env.HOMEPAGE_ALLOWED_HOSTS
-  if (!hosts || hosts === '*') throw new Error('write origin is not configured')
-  return new Set(hosts.split(',').filter(Boolean).map((host) => new URL(`https://${host}`).origin))
-}
 
 function requireSameOrigin(request: Request): void {
   const origin = request.headers.get('origin')
-  if (!origin || !allowedOrigins().has(origin)) throw new Error('origin denied')
-}
-
-async function moonraker(path: string, init?: RequestInit): Promise<unknown> {
-  const headers = new Headers(init?.headers)
-  headers.set('accept', 'application/json')
-  if (process.env.MOONRAKER_API_KEY) headers.set('x-api-key', process.env.MOONRAKER_API_KEY)
-  const response = await fetch(new URL(path, configuredMoonraker()), {
-    ...init,
-    headers,
-    redirect: 'error',
-    credentials: 'omit',
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-  })
-  if (!response.ok) throw new Error('Moonraker unavailable')
-  return response.json() as Promise<unknown>
+  if (!origin || !originAllowedByHosts(origin)) throw new Error('origin denied')
 }
 
 async function lightState(): Promise<boolean> {
-  const params = new URLSearchParams([[LIGHT_OBJECT, '']])
-  const response = await moonraker(`/printer/objects/query?${params}`)
+  const response = await moonrakerJson('/printer/objects/query', MAX_RESPONSE_BYTES, new URLSearchParams([[LIGHT_OBJECT, '']]))
   const result = isRecord(response) && isRecord(response.result) ? response.result : null
   const status = result && isRecord(result.status) ? result.status : null
   const light = status && isRecord(status[LIGHT_OBJECT]) ? status[LIGHT_OBJECT] : null
@@ -85,11 +52,12 @@ export async function POST(request: Request): Promise<Response> {
     if (!isRecord(payload) || Object.keys(payload).length !== 1 || typeof payload.enabled !== 'boolean') throw new Error('invalid input')
 
     const enabled = payload.enabled
-    await moonraker('/printer/gcode/script', {
+    const response = await moonraker('/printer/gcode/script', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ script: enabled ? 'SET_PIN PIN=caselight VALUE=1' : 'SET_PIN PIN=caselight VALUE=0' }),
     })
+    await response.body?.cancel()
     const confirmed = await lightState()
     if (confirmed !== enabled) throw new Error('light state was not confirmed')
     return Response.json({ enabled: confirmed }, { headers: { 'cache-control': 'no-store' } })
