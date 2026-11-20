@@ -23,7 +23,7 @@ function usePrinterStream() {
     streamUrl: visible ? `/api/printer/stream?attempt=${attempt}` : null,
     streamWarning: warning,
     streamReady: () => setWarning(null),
-    streamFailed: () => setWarning('Прямая трансляция камеры временно недоступна.'),
+    streamFailed: () => setWarning('Нет изображения с камеры.'),
   }
 }
 
@@ -131,24 +131,20 @@ export function PrinterScreen() {
   return (
     <section className="printer-screen" aria-labelledby="printer-title">
       <header className="printer-heading">
-        <div>
-          <p>Камера</p>
-          <h2 id="printer-title">Принтер</h2>
-        </div>
+        <h2 id="printer-title">Принтер</h2>
       </header>
       {warning && <div className="printer-warning" role="alert"><AlertTriangle size={18} aria-hidden="true" /><span>{warning}</span></div>}
       <div className="printer-dashboard">
         <div>
           <div className="printer-frame">
             {streamUrl ? (
-              <img className="printer-live-stream" alt="Прямая трансляция камеры принтера" onError={streamFailed} onLoad={streamReady} src={streamUrl} />
+              <img className="printer-live-stream" alt="Изображение с камеры принтера" onError={streamFailed} onLoad={streamReady} src={streamUrl} />
             ) : (
-              <div className="printer-frame-empty" role="status">Трансляция остановлена, пока вкладка скрыта.</div>
+              <div className="printer-frame-empty" role="status">Подключение к камере…</div>
             )}
           </div>
-          <p className="printer-frame-time">Прямая трансляция · соединение закрывается при уходе с экрана или скрытии вкладки.</p>
           <section className="printer-light" aria-labelledby="printer-light-title">
-            <div><p>Камера</p><h3 id="printer-light-title">Подсветка камеры</h3><small aria-live="polite">{pending ? 'Применение…' : lightStatus}</small></div>
+            <div><h3 id="printer-light-title">Подсветка камеры</h3><small aria-live="polite">{pending ? 'Применение…' : lightStatus}</small></div>
             <button
               aria-checked={light?.enabled ?? false}
               aria-labelledby="printer-light-title"
@@ -174,7 +170,7 @@ function formatDuration(seconds: number): string {
 function PrinterTelemetryPanel({ telemetry, warning, loading }: ReturnType<typeof usePrinterTelemetry>) {
   if (!telemetry) return (
     <section className="printer-telemetry" aria-labelledby="telemetry-title">
-      <p>Телеметрия</p><h3 id="telemetry-title">Состояние</h3>
+      <h3 id="telemetry-title">Состояние</h3>
       <div className="printer-telemetry-empty" role="status">{loading ? 'Загрузка телеметрии…' : 'Телеметрия пока недоступна.'}</div>
       {warning && <div className="printer-warning" role="alert"><AlertTriangle size={18} aria-hidden="true" /><span>{warning}</span></div>}
     </section>
@@ -184,7 +180,7 @@ function PrinterTelemetryPanel({ telemetry, warning, loading }: ReturnType<typeo
   const progress = job.progress === null ? null : Math.max(0, Math.min(100, job.progress * 100))
   return (
     <section className="printer-telemetry" aria-labelledby="telemetry-title">
-      <p>Телеметрия · только чтение</p><h3 id="telemetry-title">Состояние</h3>
+      <h3 id="telemetry-title">Состояние</h3>
       {warning && <div className="printer-warning printer-telemetry-warning" role="alert"><AlertTriangle size={18} aria-hidden="true" /><span>{warning} Показаны последние данные.</span></div>}
       <div className="telemetry-job">
         <strong>{job.status ?? job.state ?? 'Неизвестно'}</strong>
@@ -192,10 +188,9 @@ function PrinterTelemetryPanel({ telemetry, warning, loading }: ReturnType<typeo
         {progress !== null && <><div className="telemetry-progress" aria-label={`Выполнено ${progress.toFixed(1)}%`}><i style={{ width: `${progress}%` }} /></div><small>Файл: {progress.toFixed(1)}%</small></>}
       </div>
       <div className="telemetry-summary">
-        <span><b>ETA</b>{job.etaSeconds === null ? '—' : `≈ ${formatDuration(job.etaSeconds)}`}</span>
+        <span><b>Осталось</b>{job.etaSeconds === null ? '—' : `≈ ${formatDuration(job.etaSeconds)}`}</span>
         <span><b>Слои</b>{job.layer === null || job.totalLayers === null ? '—' : `${job.layer}/${job.totalLayers}`}</span>
       </div>
-      {job.etaSource && <small className="telemetry-note">Оценка слайсера; не учитывает паузы и изменение скорости.</small>}
       <TelemetryGroup title="Температуры" items={telemetry.temperatures.map((item) => ({
         name: item.name,
         value: `${item.temperature.toFixed(1)} °C${item.target === null ? '' : ` / ${item.target.toFixed(0)} °C`}`,
