@@ -40,6 +40,20 @@ function isFan(name: string): boolean {
   return /^(fan_generic|controller_fan|heater_fan|box_heater_fan) /.test(name)
 }
 
+function remainingSeconds(state: string | null, nativeRemaining: number | null, displayProgress: number | null, elapsedSeconds: number | null, slicerSeconds: number | null) {
+  if (state !== 'printing' && state !== 'paused') return { value: null, source: null }
+  if (nativeRemaining !== null) return { value: nativeRemaining, source: 'native' as const }
+  if (elapsedSeconds === null || slicerSeconds === null) return { value: null, source: null }
+  if (displayProgress !== null && displayProgress > 0 && displayProgress <= 1) {
+    const weight = Math.max(0, Math.min(1, (displayProgress - 0.05) / 0.45))
+    const total = slicerSeconds * (1 - weight) + elapsedSeconds / displayProgress * weight
+    return { value: Math.max(0, total - elapsedSeconds), source: 'display_progress' as const }
+  }
+  return slicerSeconds > elapsedSeconds
+    ? { value: slicerSeconds - elapsedSeconds, source: 'slicer_elapsed' as const }
+    : { value: null, source: null }
+}
+
 function progressFor(state: string | null, displayProgress: number | null, fileProgress: number | null) {
   if (state !== 'printing' && state !== 'paused') return { value: null, source: null }
   if (displayProgress !== null && displayProgress > 0) return { value: displayProgress, source: 'display_status' }
@@ -70,7 +84,7 @@ export async function GET(): Promise<Response> {
     const fileProgress = numberValue(virtualSdcard.progress)
     const progress = progressFor(state, displayProgress, fileProgress)
     let estimatedSeconds: number | null = null
-    if (state === 'printing' && filename) {
+    if ((state === 'printing' || state === 'paused') && filename) {
       try {
         const metadata = moonrakerResult(await moonrakerJson('/server/files/metadata', MAX_RESPONSE_BYTES, new URLSearchParams({ filename })))
         estimatedSeconds = numberValue(metadata.estimated_time)
@@ -78,7 +92,8 @@ export async function GET(): Promise<Response> {
         // The live job remains useful when Moonraker has no metadata for a new file.
       }
     }
-    const etaSeconds = estimatedSeconds === null || printDuration === null ? null : Math.max(0, estimatedSeconds - printDuration)
+    const nativeRemaining = numberValue(manager.remaining_time) ?? numberValue(manager.remain_time) ?? numberValue(displayStatus.remaining_time)
+    const eta = remainingSeconds(state, nativeRemaining, displayProgress, printDuration, estimatedSeconds)
 
     const temperatureNames = new Set<string>()
     const temperatures = selected.flatMap((name) => {
@@ -109,8 +124,8 @@ export async function GET(): Promise<Response> {
         totalLayers: numberValue(info.total_layer),
         elapsedSeconds: state === 'printing' || state === 'paused' ? printDuration : null,
         estimatedSeconds,
-        etaSeconds,
-        etaSource: etaSeconds === null ? null : 'slicer_metadata_minus_print_duration',
+        etaSeconds: eta.value,
+        etaSource: eta.source,
       },
       temperatures,
       fans,
