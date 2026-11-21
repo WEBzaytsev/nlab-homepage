@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, ExternalLink, Lightbulb } from 'lucide-react'
 import { useVisiblePolling } from '../domain/use-visible-polling'
 
 function usePrinterStream() {
@@ -21,13 +21,31 @@ function usePrinterStream() {
 
   return {
     streamUrl: visible ? `/api/printer/stream?attempt=${attempt}` : null,
-    streamWarning: warning,
-    streamReady: () => setWarning(null),
-    streamFailed: () => setWarning('Нет изображения с камеры.'),
+    warning,
+    ready: () => setWarning(null),
+    failed: () => setWarning('Камера временно недоступна.'),
   }
 }
 
 type PrinterLight = Readonly<{ enabled: boolean }>
+
+type TelemetryItem = Readonly<{ name: string; temperature: number; target: number | null }>
+type Fan = Readonly<{ name: string; rpm: number | null; pwm: number | null }>
+type PrinterTelemetry = Readonly<{
+  updatedAt: number
+  job: Readonly<{
+    state: string | null
+    status: string | null
+    filename: string | null
+    progress: number | null
+    displayProgress: number | null
+    layer: number | null
+    totalLayers: number | null
+    etaSeconds: number | null
+  }>
+  temperatures: readonly TelemetryItem[]
+  fans: readonly Fan[]
+}>
 
 function usePrinterLight() {
   const [light, setLight] = useState<PrinterLight | null>(null)
@@ -72,26 +90,8 @@ function usePrinterLight() {
   }, [light, pending, refresh])
 
   useVisiblePolling(10_000, refresh, () => requestRef.current?.abort())
-
   return { light, pending, setEnabled, warning }
 }
-
-type PrinterTelemetry = Readonly<{
-  updatedAt: number
-  job: Readonly<{
-    state: string | null
-    status: string | null
-    filename: string | null
-    progress: number | null
-    displayProgress: number | null
-    layer: number | null
-    totalLayers: number | null
-    etaSeconds: number | null
-    etaSource: 'slicer_metadata' | null
-  }>
-  temperatures: readonly Readonly<{ name: string; temperature: number; target: number | null }>[]
-  fans: readonly Readonly<{ name: string; rpm: number | null; pwm: number | null }>[]
-}>
 
 function usePrinterTelemetry() {
   const [telemetry, setTelemetry] = useState<PrinterTelemetry | null>(null)
@@ -117,98 +117,112 @@ function usePrinterTelemetry() {
   }, [])
 
   useVisiblePolling(10_000, refresh, () => requestRef.current?.abort())
-
   return { telemetry, warning, loading }
 }
 
-export function PrinterScreen() {
-  const { streamUrl, streamWarning, streamReady, streamFailed } = usePrinterStream()
-  const { light, pending, setEnabled, warning: lightWarning } = usePrinterLight()
-  const telemetry = usePrinterTelemetry()
-  const warning = streamWarning ?? lightWarning
-  const lightStatus = light === null ? 'Состояние подсветки неизвестно' : light.enabled ? 'Включена' : 'Выключена'
-
-  return (
-    <section className="printer-screen" aria-labelledby="printer-title">
-      <header className="printer-heading">
-        <h2 id="printer-title">Принтер</h2>
-        <nav className="printer-links" aria-label="Панели принтера">
-          <a href="http://192.168.0.109:10088/valve-oil">Valve Oil</a>
-          <a href="http://192.168.0.109:10088/">Fluidd</a>
-        </nav>
-      </header>
-      {warning && <div className="printer-warning" role="alert"><AlertTriangle size={18} aria-hidden="true" /><span>{warning}</span></div>}
-      <div className="printer-dashboard">
-        <div>
-          <div className="printer-frame">
-            {streamUrl ? (
-              <img className="printer-live-stream" alt="Изображение с камеры принтера" onError={streamFailed} onLoad={streamReady} src={streamUrl} />
-            ) : (
-              <div className="printer-frame-empty" role="status">Подключение к камере…</div>
-            )}
-          </div>
-          <section className="printer-light" aria-labelledby="printer-light-title">
-            <div><h3 id="printer-light-title">Подсветка камеры</h3><small aria-live="polite">{pending ? 'Применение…' : lightStatus}</small></div>
-            <button
-              aria-checked={light?.enabled ?? false}
-              aria-labelledby="printer-light-title"
-              className="printer-light-switch"
-              disabled={light === null || pending}
-              onClick={() => void setEnabled(!(light?.enabled ?? false))}
-              role="switch"
-              type="button"
-            ><span aria-hidden="true" /></button>
-          </section>
-        </div>
-        <PrinterTelemetryPanel {...telemetry} />
-      </div>
-    </section>
-  )
-}
-
 function formatDuration(seconds: number): string {
-  const minutes = Math.round(seconds / 60)
+  const minutes = Math.max(0, Math.round(seconds / 60))
   return `${Math.floor(minutes / 60)} ч ${minutes % 60} мин`
 }
 
-function PrinterTelemetryPanel({ telemetry, warning, loading }: ReturnType<typeof usePrinterTelemetry>) {
-  if (!telemetry) return (
-    <section className="printer-telemetry" aria-labelledby="telemetry-title">
-      <h3 id="telemetry-title">Состояние</h3>
-      <div className="printer-telemetry-empty" role="status">{loading ? 'Загрузка телеметрии…' : 'Телеметрия пока недоступна.'}</div>
-      {warning && <div className="printer-warning" role="alert"><AlertTriangle size={18} aria-hidden="true" /><span>{warning}</span></div>}
-    </section>
-  )
-
-  const { job } = telemetry
-  const progress = job.progress === null ? null : Math.max(0, Math.min(100, job.progress * 100))
-  return (
-    <section className="printer-telemetry" aria-labelledby="telemetry-title">
-      <h3 id="telemetry-title">Состояние</h3>
-      {warning && <div className="printer-warning printer-telemetry-warning" role="alert"><AlertTriangle size={18} aria-hidden="true" /><span>{warning} Показаны последние данные.</span></div>}
-      <div className="telemetry-job">
-        <strong>{job.status ?? job.state ?? 'Неизвестно'}</strong>
-        <span title={job.filename ?? undefined}>{job.filename ?? 'Задание не выбрано'}</span>
-        {progress !== null && <><div className="telemetry-progress" aria-label={`Выполнено ${progress.toFixed(1)}%`}><i style={{ width: `${progress}%` }} /></div><small>Файл: {progress.toFixed(1)}%</small></>}
-      </div>
-      <div className="telemetry-summary">
-        <span><b>Осталось</b>{job.etaSeconds === null ? '—' : `≈ ${formatDuration(job.etaSeconds)}`}</span>
-        <span><b>Слои</b>{job.layer === null || job.totalLayers === null ? '—' : `${job.layer}/${job.totalLayers}`}</span>
-      </div>
-      <TelemetryGroup title="Температуры" items={telemetry.temperatures.map((item) => ({
-        name: item.name,
-        value: `${item.temperature.toFixed(1)} °C${item.target === null ? '' : ` / ${item.target.toFixed(0)} °C`}`,
-      }))} />
-      <TelemetryGroup title={`Вентиляторы · тахо ${telemetry.fans.filter((fan) => fan.rpm !== null).length}/${telemetry.fans.length}`} items={telemetry.fans.map((fan) => ({
-        name: fan.name,
-        value: fan.rpm === null
-          ? `тахо нет${fan.pwm === null ? '' : ` · PWM ${Math.round(fan.pwm * 100)}%`}`
-          : `${Math.round(fan.rpm)} RPM${fan.pwm === null ? '' : ` · PWM ${Math.round(fan.pwm * 100)}%`}`,
-      }))} />
-    </section>
-  )
+function value(value: number | null, digits = 0): string {
+  return value === null ? '—' : value.toLocaleString('ru-RU', { maximumFractionDigits: digits, minimumFractionDigits: digits })
 }
 
-function TelemetryGroup({ title, items }: { title: string; items: readonly { name: string; value: string }[] }) {
-  return <div className="telemetry-group"><h4>{title}</h4><dl>{items.map((item) => <div key={item.name}><dt>{item.name}</dt><dd>{item.value}</dd></div>)}</dl></div>
+function findByName<T extends { name: string }>(items: readonly T[], expression: RegExp): T | null {
+  return items.find((item) => expression.test(item.name.toLocaleLowerCase('ru-RU'))) ?? null
+}
+
+function temperature(temperatures: readonly TelemetryItem[], expression: RegExp): number | null {
+  return findByName(temperatures, expression)?.temperature ?? null
+}
+
+function fan(fans: readonly Fan[], expression: RegExp): Fan | null {
+  return findByName(fans, expression)
+}
+
+function MetricColumn({ title, unit, rows }: { title: string; unit: string; rows: readonly { label: string; value: string }[] }) {
+  return <section className="printer-metric-column" aria-label={`${title}, ${unit}`}>
+    <header><h3>{title}</h3><span>{unit}</span></header>
+    {rows.map((row) => <div className="printer-metric" key={row.label}><span>{row.label}</span><b>{row.value}</b></div>)}
+  </section>
+}
+
+function PrinterReadings({ telemetry, warning, loading }: ReturnType<typeof usePrinterTelemetry>) {
+  if (!telemetry) return <section className="printer-readings printer-readings-empty" aria-live="polite">
+    <strong>{loading ? 'Загрузка показаний…' : 'Показания недоступны.'}</strong>
+    {warning && <span>{warning}</span>}
+  </section>
+
+  const hotend = fan(telemetry.fans, /hotend|хотэнд/)
+  const part = fan(telemetry.fans, /^cooling fan$|part|обдув/)
+  const camera = fan(telemetry.fans, /^chamber fan$|^camera fan$|камера/)
+  const stale = Date.now() - telemetry.updatedAt > 30_000
+  const fanValue = (current: Fan | null) => current?.rpm === null || !current ? '—' : value(current.rpm)
+
+  return <section className="printer-readings" aria-label="Показания принтера">
+    {(warning || stale) && <div className="printer-exception" role="alert"><AlertTriangle size={16} aria-hidden="true" /><span>{warning ?? 'Показания устарели; отображаются последние полученные данные.'}</span></div>}
+    <div className="printer-reading-grid">
+      <MetricColumn title="Нагрев" unit="°C" rows={[
+        { label: 'Сопло', value: value(temperature(telemetry.temperatures, /сопло|extruder/), 1) },
+        { label: 'Стол', value: value(temperature(telemetry.temperatures, /стол|heater bed/), 1) },
+        { label: 'Камера', value: value(temperature(telemetry.temperatures, /камера|chamber/), 1) },
+      ]} />
+      <MetricColumn title="Электроника" unit="°C" rows={[
+        { label: 'Голова', value: value(temperature(telemetry.temperatures, /головы|toolhead/), 1) },
+        { label: 'Основная плата', value: value(temperature(telemetry.temperatures, /mcu основной|mainboard/), 1) },
+        { label: 'SoC', value: value(temperature(telemetry.temperatures, /soc/), 1) },
+      ]} />
+      <MetricColumn title="Вентиляторы" unit="об/мин" rows={[
+        { label: 'Хотэнд', value: fanValue(hotend) },
+        { label: 'Обдув детали', value: fanValue(part) },
+        { label: 'Камера', value: fanValue(camera) },
+      ]} />
+    </div>
+    <details className="printer-details">
+      <summary>QIDI Max4 <span aria-hidden="true">·</span> Все показания</summary>
+      <div className="printer-details-grid">
+        <section><h3>Температуры</h3>{telemetry.temperatures.map((item) => <div key={item.name}><span>{item.name}</span><b>{value(item.temperature, 1)} °C{item.target === null ? '' : ` / ${value(item.target)} °C`}</b></div>)}</section>
+        <section><h3>Вентиляторы</h3>{telemetry.fans.map((item) => <div key={item.name}><span>{item.name}</span><b>{item.rpm === null ? 'RPM —' : `${value(item.rpm)} RPM`}{item.pwm === null ? ' · PWM —' : ` · PWM ${value(item.pwm * 100)}%`}</b></div>)}</section>
+      </div>
+    </details>
+  </section>
+}
+
+export function PrinterScreen() {
+  const stream = usePrinterStream()
+  const light = usePrinterLight()
+  const telemetry = usePrinterTelemetry()
+  const job = telemetry.telemetry?.job
+  const rawProgress = job?.displayProgress ?? job?.progress
+  const progress = rawProgress === null || rawProgress === undefined ? null : Math.max(0, Math.min(100, rawProgress * 100))
+
+  return <section className="printer-screen" aria-labelledby="printer-title">
+    <header className="printer-topbar">
+      <h2 id="printer-title">N<span>Lab</span></h2>
+      <nav aria-label="Панели принтера" className="printer-top-actions">
+        <button
+          aria-checked={light.light?.enabled ?? false}
+          aria-label={`Подсветка: ${light.light === null ? 'состояние неизвестно' : light.light.enabled ? 'включена' : 'выключена'}`}
+          className="printer-light-switch"
+          disabled={light.light === null || light.pending}
+          onClick={() => void light.setEnabled(!(light.light?.enabled ?? false))}
+          role="switch"
+          type="button"
+        ><Lightbulb size={15} aria-hidden="true" /><span>Свет</span></button>
+        <a href="http://192.168.0.109:10088/valve-oil">Valve Oil <ExternalLink size={13} aria-hidden="true" /></a>
+        <a href="http://192.168.0.109:10088/">Fluidd <ExternalLink size={13} aria-hidden="true" /></a>
+      </nav>
+    </header>
+    {(stream.warning || light.warning) && <div className="printer-exception" role="alert"><AlertTriangle size={16} aria-hidden="true" /><span>{stream.warning ?? light.warning}</span></div>}
+    <section className="printer-camera" aria-label="Камера принтера">
+      {stream.streamUrl ? <img alt="Изображение с камеры QIDI Max4" className="printer-live-stream" onError={stream.failed} onLoad={stream.ready} src={stream.streamUrl} /> : <div className="printer-camera-empty" role="status">Подключение к камере…</div>}
+      <div className="printer-camera-vignette" aria-hidden="true" />
+      <div className="printer-job-overlay">
+        <strong title={job?.filename ?? undefined}>{job?.filename ?? 'Задание не выбрано'}</strong>
+        <div>{progress === null ? '—' : `${value(progress, 0)}%`} <span>Слой {job?.layer === null || job?.layer === undefined || job.totalLayers === null || job.totalLayers === undefined ? '—' : `${value(job.layer)} / ${value(job.totalLayers)}`}</span> <span>Осталось {job?.etaSeconds === null || job?.etaSeconds === undefined ? '—' : `≈ ${formatDuration(job.etaSeconds)}`}</span></div>
+      </div>
+    </section>
+    <PrinterReadings {...telemetry} />
+  </section>
 }
