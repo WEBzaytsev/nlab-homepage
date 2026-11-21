@@ -111,7 +111,7 @@ async function cameraStream(request: Request): Promise<Response> {
 
           const frame = latest
           latest = null
-          const output = await sharp(frame).resize({ width: 960, withoutEnlargement: true }).jpeg({ quality: 65, mozjpeg: true }).toBuffer()
+          const output = await sharp(frame).resize({ width: 640, withoutEnlargement: true }).jpeg({ quality: 35 }).toBuffer()
           controller.enqueue(multipartFrame(output))
           return
         }
