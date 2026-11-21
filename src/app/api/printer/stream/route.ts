@@ -67,6 +67,7 @@ async function cameraStream(request: Request): Promise<Response> {
   return new Response(Readable.toWeb(encoder.stdout) as ReadableStream<Uint8Array>, {
     headers: {
       'cache-control': 'no-store, no-transform',
+      'content-encoding': 'identity',
       'content-type': 'video/mp4',
       'x-accel-buffering': 'no',
     },
