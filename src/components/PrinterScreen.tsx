@@ -144,6 +144,15 @@ function fan(fans: readonly Fan[], expression: RegExp): Fan | null {
   return findByName(fans, expression)
 }
 
+function jobStateLabel(state: string | null | undefined) {
+
+  if (state === 'paused') return 'Пауза'
+  if (state === 'error') return 'Ошибка'
+  if (state === 'complete') return 'Готово'
+  if (state === 'cancelled') return 'Отменено'
+  return null
+}
+
 function MetricColumn({ title, unit, rows }: { title: string; unit: string; rows: readonly { label: string; value: string }[] }) {
   return <section className="printer-metric-column" aria-label={`${title}, ${unit}`}>
     <header><h3>{title}</h3><span>{unit}</span></header>
@@ -188,6 +197,7 @@ function PrinterReadings({ telemetry, warning, loading }: ReturnType<typeof useP
         <section><h3>Температуры</h3>{telemetry.temperatures.map((item) => <div key={item.name}><span>{item.name}</span><b>{value(item.temperature, 1)} °C{item.target === null ? '' : ` / ${value(item.target)} °C`}</b></div>)}</section>
         <section><h3>Вентиляторы</h3>{telemetry.fans.map((item) => <div key={item.name}><span>{item.name}</span><b>{item.rpm === null ? 'RPM —' : `${value(item.rpm)} RPM`}{item.pwm === null ? ' · PWM —' : ` · PWM ${value(item.pwm * 100)}%`}</b></div>)}</section>
       </div>
+
     </details>
   </section>
 }
@@ -198,35 +208,36 @@ export function PrinterScreen() {
   const telemetry = usePrinterTelemetry()
   const job = telemetry.telemetry?.job
   const progress = job?.progress === null || job?.progress === undefined ? null : Math.max(0, Math.min(100, job.progress * 100))
-  const progressLabel = job?.progressSource === 'display_status' ? 'Печать' : job?.progressSource === 'virtual_sdcard' ? 'Файл' : null
-  const etaLabel = job?.state === 'paused' ? 'Пауза' : job?.etaSource === 'native' ? 'принтер' : job?.etaSource === 'display_progress' ? 'по ходу печати' : 'слайсер'
+  const stateLabel = jobStateLabel(job?.state)
 
-  return <section className="printer-screen" aria-labelledby="printer-title">
-    <header className="printer-topbar">
-      <h2 id="printer-title">N<span>Lab</span></h2>
-      <nav aria-label="Панели принтера" className="printer-top-actions">
+  return <section className="printer-screen" aria-label="QIDI Max4">
+    {(stream.warning || light.warning) && <div className="printer-exception" role="alert"><AlertTriangle size={16} aria-hidden="true" /><span>{stream.warning ?? light.warning}</span></div>}
+    <section className="printer-camera" aria-label="Камера принтера">
+      {stream.streamUrl ? <img alt="Изображение с камеры QIDI Max4" className="printer-live-stream" onError={stream.failed} onLoad={stream.ready} src={stream.streamUrl} /> : <div className="printer-camera-empty" role="status">Подключение к камере…</div>}
+      <div className="printer-camera-vignette" aria-hidden="true" />
+      <div className="printer-camera-tools">
+        <nav aria-label="Панели принтера" className="printer-device-links">
+          <a href="http://192.168.0.109:10088/valve-oil">Valve Oil <ExternalLink size={13} aria-hidden="true" /></a>
+          <a href="http://192.168.0.109:10088/">Fluidd <ExternalLink size={13} aria-hidden="true" /></a>
+        </nav>
         <button
           aria-checked={light.light?.enabled ?? false}
-          aria-label={`Подсветка: ${light.light === null ? 'состояние неизвестно' : light.light.enabled ? 'включена' : 'выключена'}`}
+          aria-label={`Свет камеры: ${light.light === null ? 'состояние неизвестно' : light.light.enabled ? 'включен' : 'выключен'}`}
           className="printer-light-switch"
           disabled={light.light === null || light.pending}
           onClick={() => void light.setEnabled(!(light.light?.enabled ?? false))}
           role="switch"
           type="button"
         ><Lightbulb size={15} aria-hidden="true" /><span>Свет</span></button>
-        <a href="http://192.168.0.109:10088/valve-oil">Valve Oil <ExternalLink size={13} aria-hidden="true" /></a>
-        <a href="http://192.168.0.109:10088/">Fluidd <ExternalLink size={13} aria-hidden="true" /></a>
-      </nav>
-    </header>
-    {(stream.warning || light.warning) && <div className="printer-exception" role="alert"><AlertTriangle size={16} aria-hidden="true" /><span>{stream.warning ?? light.warning}</span></div>}
-    <section className="printer-camera" aria-label="Камера принтера">
-      {stream.streamUrl ? <img alt="Изображение с камеры QIDI Max4" className="printer-live-stream" onError={stream.failed} onLoad={stream.ready} src={stream.streamUrl} /> : <div className="printer-camera-empty" role="status">Подключение к камере…</div>}
-      <div className="printer-camera-vignette" aria-hidden="true" />
-      <div className="printer-job-overlay">
-        <strong title={job?.filename ?? undefined}>{job?.filename ?? 'Задание не выбрано'}</strong>
-        <div>{progress === null ? '—' : `${value(progress, 0)}%`} <span>{progressLabel ?? 'Прогресс'}</span> <span>Слой {job?.layer === null || job?.layer === undefined || job.totalLayers === null || job.totalLayers === undefined ? '—' : `${value(job.layer)} / ${value(job.totalLayers)}`}</span> <span>Прошло {job?.elapsedSeconds === null || job?.elapsedSeconds === undefined ? '—' : formatDuration(job.elapsedSeconds)}</span> <span>Осталось {job?.etaSeconds === null || job?.etaSeconds === undefined ? '—' : `≈ ${formatDuration(job.etaSeconds)} (${etaLabel})`}</span></div>
       </div>
+      {job && <div className="printer-job-overlay">
+        {stateLabel && <span className={`printer-job-state state-${job.state}`} role="status">{stateLabel}</span>}
+        {progress !== null && <strong>{value(progress, 0)}%{job.progressSource === 'virtual_sdcard' ? ' файла' : ''}</strong>}
+        <span className="printer-job-filename" title={job.filename ?? undefined}>{job.filename ?? 'Задание не выбрано'}</span>
+        <div className="printer-job-meta">{job.etaSeconds !== null && <span>Осталось ≈ {formatDuration(job.etaSeconds)}</span>}{job.layer !== null && job.totalLayers !== null && <span>Слой {value(job.layer)} / {value(job.totalLayers)}</span>}{job.elapsedSeconds !== null && <span>Прошло {formatDuration(job.elapsedSeconds)}</span>}</div>
+      </div>}
     </section>
     <PrinterReadings {...telemetry} />
+
   </section>
 }
