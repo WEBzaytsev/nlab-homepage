@@ -42,7 +42,7 @@ async function cameraStream(request: Request): Promise<Response> {
 
   const encoder = spawn('ffmpeg', [
     '-hide_banner', '-loglevel', 'error', '-fflags', 'nobuffer', '-flags', 'low_delay',
-    '-f', 'mpjpeg', '-i', 'pipe:0', '-an', '-c:v', 'libx264', '-preset', 'ultrafast',
+    '-f', 'mjpeg', '-i', 'pipe:0', '-an', '-c:v', 'libx264', '-preset', 'ultrafast',
     '-tune', 'zerolatency', '-threads', '1', '-pix_fmt', 'yuv420p', '-crf', '23',
     '-g', '30', '-keyint_min', '30', '-sc_threshold', '0', '-fps_mode', 'passthrough',
     '-f', 'mp4', '-movflags', 'frag_keyframe+empty_moov+default_base_moof', 'pipe:1',
