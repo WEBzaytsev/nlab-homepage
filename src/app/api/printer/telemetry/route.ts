@@ -40,6 +40,13 @@ function isFan(name: string): boolean {
   return /^(fan_generic|controller_fan|heater_fan|box_heater_fan) /.test(name)
 }
 
+function progressFor(state: string | null, displayProgress: number | null, fileProgress: number | null) {
+  if (state !== 'printing' && state !== 'paused') return { value: null, source: null }
+  if (displayProgress !== null && displayProgress > 0) return { value: displayProgress, source: 'display_status' }
+  if (fileProgress !== null) return { value: fileProgress, source: 'virtual_sdcard' }
+  return { value: displayProgress, source: displayProgress === null ? null : 'display_status' }
+}
+
 export async function GET(): Promise<Response> {
   try {
     const objects = moonrakerResult(await moonrakerJson('/printer/objects/list', MAX_RESPONSE_BYTES)).objects
@@ -59,12 +66,19 @@ export async function GET(): Promise<Response> {
     const filename = typeof printStats.filename === 'string' && printStats.filename ? printStats.filename : null
     const printDuration = numberValue(printStats.print_duration)
 
-    let etaSeconds: number | null = null
-    if (state === 'printing' && filename && printDuration !== null) {
-      const metadata = moonrakerResult(await moonrakerJson('/server/files/metadata', MAX_RESPONSE_BYTES, new URLSearchParams({ filename })))
-      const estimatedTime = numberValue(metadata.estimated_time)
-      if (estimatedTime !== null) etaSeconds = Math.max(0, estimatedTime - printDuration)
+    const displayProgress = numberValue(displayStatus.progress)
+    const fileProgress = numberValue(virtualSdcard.progress)
+    const progress = progressFor(state, displayProgress, fileProgress)
+    let estimatedSeconds: number | null = null
+    if (state === 'printing' && filename) {
+      try {
+        const metadata = moonrakerResult(await moonrakerJson('/server/files/metadata', MAX_RESPONSE_BYTES, new URLSearchParams({ filename })))
+        estimatedSeconds = numberValue(metadata.estimated_time)
+      } catch {
+        // The live job remains useful when Moonraker has no metadata for a new file.
+      }
     }
+    const etaSeconds = estimatedSeconds === null || printDuration === null ? null : Math.max(0, estimatedSeconds - printDuration)
 
     const temperatureNames = new Set<string>()
     const temperatures = selected.flatMap((name) => {
@@ -89,12 +103,14 @@ export async function GET(): Promise<Response> {
         state,
         status: typeof manager.main_status === 'string' ? manager.main_status : null,
         filename,
-        progress: numberValue(virtualSdcard.progress),
-        displayProgress: numberValue(displayStatus.progress),
+        progress: progress.value,
+        progressSource: progress.source,
         layer: numberValue(info.current_layer),
         totalLayers: numberValue(info.total_layer),
+        elapsedSeconds: state === 'printing' || state === 'paused' ? printDuration : null,
+        estimatedSeconds,
         etaSeconds,
-        etaSource: etaSeconds === null ? null : 'slicer_metadata',
+        etaSource: etaSeconds === null ? null : 'slicer_metadata_minus_print_duration',
       },
       temperatures,
       fans,

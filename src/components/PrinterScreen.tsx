@@ -38,10 +38,13 @@ type PrinterTelemetry = Readonly<{
     status: string | null
     filename: string | null
     progress: number | null
-    displayProgress: number | null
+    progressSource: 'display_status' | 'virtual_sdcard' | null
     layer: number | null
     totalLayers: number | null
+    elapsedSeconds: number | null
+    estimatedSeconds: number | null
     etaSeconds: number | null
+    etaSource: 'slicer_metadata_minus_print_duration' | null
   }>
   temperatures: readonly TelemetryItem[]
   fans: readonly Fan[]
@@ -194,8 +197,8 @@ export function PrinterScreen() {
   const light = usePrinterLight()
   const telemetry = usePrinterTelemetry()
   const job = telemetry.telemetry?.job
-  const rawProgress = job?.displayProgress ?? job?.progress
-  const progress = rawProgress === null || rawProgress === undefined ? null : Math.max(0, Math.min(100, rawProgress * 100))
+  const progress = job?.progress === null || job?.progress === undefined ? null : Math.max(0, Math.min(100, job.progress * 100))
+  const progressLabel = job?.progressSource === 'display_status' ? 'Печать' : job?.progressSource === 'virtual_sdcard' ? 'Файл' : null
 
   return <section className="printer-screen" aria-labelledby="printer-title">
     <header className="printer-topbar">
@@ -220,7 +223,7 @@ export function PrinterScreen() {
       <div className="printer-camera-vignette" aria-hidden="true" />
       <div className="printer-job-overlay">
         <strong title={job?.filename ?? undefined}>{job?.filename ?? 'Задание не выбрано'}</strong>
-        <div>{progress === null ? '—' : `${value(progress, 0)}%`} <span>Слой {job?.layer === null || job?.layer === undefined || job.totalLayers === null || job.totalLayers === undefined ? '—' : `${value(job.layer)} / ${value(job.totalLayers)}`}</span> <span>Осталось {job?.etaSeconds === null || job?.etaSeconds === undefined ? '—' : `≈ ${formatDuration(job.etaSeconds)}`}</span></div>
+        <div>{progress === null ? '—' : `${value(progress, 0)}%`} <span>{progressLabel ?? 'Прогресс'}</span> <span>Слой {job?.layer === null || job?.layer === undefined || job.totalLayers === null || job.totalLayers === undefined ? '—' : `${value(job.layer)} / ${value(job.totalLayers)}`}</span> <span>Прошло {job?.elapsedSeconds === null || job?.elapsedSeconds === undefined ? '—' : formatDuration(job.elapsedSeconds)}</span> <span>Осталось {job?.etaSeconds === null || job?.etaSeconds === undefined ? '—' : `≈ ${formatDuration(job.etaSeconds)} (слайсер)`}</span></div>
       </div>
     </section>
     <PrinterReadings {...telemetry} />
