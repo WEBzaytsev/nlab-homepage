@@ -232,7 +232,7 @@ export function PrinterScreen() {
       </div>
       {job && <div className="printer-job-overlay">
         {stateLabel && <span className={`printer-job-state state-${job.state}`} role="status">{stateLabel}</span>}
-        {progress !== null && <strong>{value(progress, 0)}%{job.progressSource === 'virtual_sdcard' ? ' файла' : ''}</strong>}
+        {progress !== null && <strong>{value(progress, 0)}%</strong>}
         <span className="printer-job-filename" title={job.filename ?? undefined}>{job.filename ?? 'Задание не выбрано'}</span>
         <div className="printer-job-meta">{job.etaSeconds !== null && <span>Осталось ≈ {formatDuration(job.etaSeconds)}</span>}{job.layer !== null && job.totalLayers !== null && <span>Слой {value(job.layer)} / {value(job.totalLayers)}</span>}{job.elapsedSeconds !== null && <span>Прошло {formatDuration(job.elapsedSeconds)}</span>}</div>
       </div>}
