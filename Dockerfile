@@ -21,7 +21,9 @@ ENV NODE_ENV=production \
     GLOBAL_CONFIG_PATH=/app/config/global.yaml \
     CATALOG_CONFIG_PATH=/app/config/catalog.yaml
 
-RUN mkdir -p /app/config && chown node:node /app/config
+RUN apk add --no-cache ffmpeg \
+    && mkdir -p /app/config \
+    && chown node:node /app/config
 
 COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static

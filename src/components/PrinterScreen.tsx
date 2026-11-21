@@ -213,7 +213,7 @@ export function PrinterScreen() {
   return <section className="printer-screen" aria-label="QIDI Max4">
     {(stream.warning || light.warning) && <div className="printer-exception" role="alert"><AlertTriangle size={16} aria-hidden="true" /><span>{stream.warning ?? light.warning}</span></div>}
     <section className="printer-camera" aria-label="Камера принтера">
-      {stream.streamUrl ? <img alt="Изображение с камеры QIDI Max4" className="printer-live-stream" onError={stream.failed} onLoad={stream.ready} src={stream.streamUrl} /> : <div className="printer-camera-empty" role="status">Подключение к камере…</div>}
+      {stream.streamUrl ? <video aria-label="Изображение с камеры QIDI Max4" autoPlay className="printer-live-stream" muted onError={stream.failed} onLoadedData={stream.ready} playsInline src={stream.streamUrl} /> : <div className="printer-camera-empty" role="status">Подключение к камере…</div>}
       <div className="printer-camera-vignette" aria-hidden="true" />
       <div className="printer-camera-tools">
         <nav aria-label="Панели принтера" className="printer-device-links">
