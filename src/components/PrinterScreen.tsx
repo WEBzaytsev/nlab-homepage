@@ -2,8 +2,21 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, ExternalLink, Lightbulb } from 'lucide-react'
 import { useVisiblePolling } from '../domain/use-visible-polling'
 
+type NetworkConnection = EventTarget & Readonly<{ effectiveType?: string; saveData?: boolean }>
+
+function networkConnection(): NetworkConnection | undefined {
+  return (navigator as Navigator & { connection?: NetworkConnection }).connection
+}
+
+function prefersPreview(): boolean {
+  if (typeof navigator === 'undefined') return false
+  const connection = networkConnection()
+  return connection?.saveData === true || ['slow-2g', '2g', '3g'].includes(connection?.effectiveType ?? '')
+}
+
 function usePrinterStream() {
   const [visible, setVisible] = useState(() => typeof document === 'undefined' || document.visibilityState === 'visible')
+  const [preview, setPreview] = useState(() => prefersPreview())
   const [attempt, setAttempt] = useState(0)
   const [warning, setWarning] = useState<string | null>(null)
 
@@ -14,13 +27,21 @@ function usePrinterStream() {
   }, [])
 
   useEffect(() => {
+    const connection = networkConnection()
+    if (!connection) return
+    const updateConnection = () => setPreview(prefersPreview())
+    connection.addEventListener('change', updateConnection)
+    return () => connection.removeEventListener('change', updateConnection)
+  }, [])
+
+  useEffect(() => {
     if (!visible || !warning) return
     const retry = window.setTimeout(() => setAttempt((value) => value + 1), 5_000)
     return () => window.clearTimeout(retry)
   }, [visible, warning, attempt])
 
   return {
-    streamUrl: visible ? `/api/printer/stream?attempt=${attempt}` : null,
+    streamUrl: visible ? `/api/printer/stream?quality=${preview ? 'preview' : 'full'}&attempt=${attempt}` : null,
     warning,
     ready: () => setWarning(null),
     failed: () => setWarning('Камера временно недоступна.'),

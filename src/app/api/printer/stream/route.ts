@@ -23,6 +23,7 @@ function multipartFrame(frame: Uint8Array): Uint8Array {
 }
 
 async function cameraStream(request: Request): Promise<Response> {
+  const preview = new URL(request.url).searchParams.get('quality') === 'preview'
   const cameraOrigin = configuredOrigin('PRINTER_CAMERA_ORIGIN')
   const cameraUid = process.env.PRINTER_CAMERA_UID?.trim() || undefined
   const webcam = webcamFor(await moonrakerJson('/server/webcams/list', MAX_METADATA_BYTES), cameraUid)
@@ -111,7 +112,9 @@ async function cameraStream(request: Request): Promise<Response> {
 
           const frame = latest
           latest = null
-          const output = await sharp(frame).resize({ width: 640, withoutEnlargement: true }).jpeg({ quality: 35 }).toBuffer()
+          const output = preview
+            ? await sharp(frame).resize({ width: 640, withoutEnlargement: true }).jpeg({ quality: 35 }).toBuffer()
+            : frame
           controller.enqueue(multipartFrame(output))
           return
         }
