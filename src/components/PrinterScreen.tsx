@@ -30,6 +30,7 @@ function usePrinterStream() {
     const connection = networkConnection()
     if (!connection) return
     const updateConnection = () => setPreview(prefersPreview())
+    updateConnection()
     connection.addEventListener('change', updateConnection)
     return () => connection.removeEventListener('change', updateConnection)
   }, [])
