@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, ExternalLink, Lightbulb } from 'lucide-react'
 import { useVisiblePolling } from '../domain/use-visible-polling'
+import { fetchWithTinyAuth, isTinyAuthExpiredError } from '../domain/tiny-auth-fetch'
 
 type NetworkConnection = EventTarget & Readonly<{ effectiveType?: string; saveData?: boolean }>
 
@@ -83,12 +84,12 @@ function usePrinterLight() {
     const request = new AbortController()
     requestRef.current = request
     try {
-      const response = await fetch('/api/printer/light', { cache: 'no-store', signal: request.signal })
+      const response = await fetchWithTinyAuth('/api/printer/light', { cache: 'no-store', signal: request.signal })
       if (!response.ok) throw new Error('Подсветка камеры временно недоступна.')
       setLight(await response.json() as PrinterLight)
       setWarning(null)
     } catch (error) {
-      if (!request.signal.aborted) setWarning(error instanceof Error ? error.message : 'Подсветка камеры временно недоступна.')
+      if (!request.signal.aborted && !isTinyAuthExpiredError(error)) setWarning(error instanceof Error ? error.message : 'Подсветка камеры временно недоступна.')
     } finally {
       if (requestRef.current === request) requestRef.current = null
     }
@@ -99,7 +100,7 @@ function usePrinterLight() {
     setPending(true)
     setWarning(null)
     try {
-      const response = await fetch('/api/printer/light', {
+      const response = await fetchWithTinyAuth('/api/printer/light', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ enabled }),
@@ -107,8 +108,10 @@ function usePrinterLight() {
       if (!response.ok) throw new Error('Не удалось изменить подсветку камеры.')
       setLight(await response.json() as PrinterLight)
     } catch (error) {
-      setWarning(error instanceof Error ? error.message : 'Не удалось изменить подсветку камеры.')
-      void refresh()
+      if (!isTinyAuthExpiredError(error)) {
+        setWarning(error instanceof Error ? error.message : 'Не удалось изменить подсветку камеры.')
+        void refresh()
+      }
     } finally {
       setPending(false)
     }
@@ -129,12 +132,12 @@ function usePrinterTelemetry() {
     const request = new AbortController()
     requestRef.current = request
     try {
-      const response = await fetch('/api/printer/telemetry', { cache: 'no-store', signal: request.signal })
+      const response = await fetchWithTinyAuth('/api/printer/telemetry', { cache: 'no-store', signal: request.signal })
       if (!response.ok) throw new Error('Телеметрия принтера временно недоступна.')
       setTelemetry(await response.json() as PrinterTelemetry)
       setWarning(null)
     } catch (error) {
-      if (!request.signal.aborted) setWarning(error instanceof Error ? error.message : 'Телеметрия принтера временно недоступна.')
+      if (!request.signal.aborted && !isTinyAuthExpiredError(error)) setWarning(error instanceof Error ? error.message : 'Телеметрия принтера временно недоступна.')
     } finally {
       if (requestRef.current === request) requestRef.current = null
       setLoading(false)

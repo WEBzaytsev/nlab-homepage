@@ -9,6 +9,7 @@ import {
   type DirectoryRefreshError,
   type DirectorySnapshot,
 } from './directory-types'
+import { fetchWithTinyAuth, isTinyAuthExpiredError } from './tiny-auth-fetch'
 
 export type DirectoryState =
   | { status: 'ready'; data: DirectorySnapshot; error: null }
@@ -44,7 +45,7 @@ export function useDirectorySnapshot(initialSnapshot: DirectorySnapshot): Direct
       activeRequest = request
 
       try {
-        const response = await fetch(DIRECTORY_CONFIG_LOCATION.catalog.publicUrl, {
+        const response = await fetchWithTinyAuth(DIRECTORY_CONFIG_LOCATION.catalog.publicUrl, {
           headers: {
             Accept: 'application/json',
             'If-None-Match': `"json-${revision}"`,
@@ -79,7 +80,7 @@ export function useDirectorySnapshot(initialSnapshot: DirectorySnapshot): Direct
         lastReportedError = undefined
         setState({ status: 'ready', data: snapshot, error: null })
       } catch (cause) {
-        if (request.signal.aborted) return
+        if (request.signal.aborted || isTinyAuthExpiredError(cause)) return
         publishFailure(isDirectoryRefreshError(cause)
           ? cause
           : refreshError(
